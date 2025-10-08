@@ -1,0 +1,60 @@
+{
+  "name": "@mcp/gmail-calendar",
+  "version": "1.0.0",
+  "description": "Professional MCP server for Gmail and Google Calendar with multi-account support",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts",
+    "setup": "node setup.js",
+    "google-setup": "node setup.js --google-setup",
+    "clean": "rm -rf dist/ logs/ tokens/ attachments/",
+    "postinstall": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "gmail",
+    "google-calendar",
+    "email",
+    "calendar",
+    "google-workspace"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@google-cloud/local-auth": "^2.1.0",
+    "google-auth-library": "^9.15.0",
+    "googleapis": "^144.0.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.1",
+    "winston": "^3.17.0",
+    "node-cache": "^5.1.2",
+    "mime-types": "^2.1.35",
+    "html-to-text": "^9.0.5",
+    "juice": "^11.0.1",
+    "handlebars": "^4.7.8",
+    "dayjs": "^1.11.13",
+    "sanitize-html": "^2.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/mime-types": "^2.1.4",
+    "@types/html-to-text": "^9.0.4",
+    "@types/sanitize-html": "^2.14.0",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2",
+    "eslint": "^9.17.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.2",
+    "@typescript-eslint/parser": "^8.18.2",
+    "prettier": "^3.4.2",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.14",
+    "ts-jest": "^29.2.5"
+  }
+}
