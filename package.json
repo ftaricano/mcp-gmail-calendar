@@ -1,7 +1,7 @@
 {
   "name": "@mcp/gmail-calendar",
   "version": "1.0.0",
-  "description": "Professional MCP server for Gmail and Google Calendar with multi-account support",
+  "description": "MCP server for Gmail and Google Calendar workflows with multi-account OAuth support.",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
