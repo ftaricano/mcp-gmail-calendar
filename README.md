@@ -113,22 +113,22 @@ After authentication, use `list_accounts` or `switch_account` before Gmail or Ca
 ### Gmail
 - `email_list`, `email_read`, `email_send`, `email_reply`, `email_forward`
 - `email_delete`, `email_mark_read`, `email_mark_unread`, `email_search`
-- `email_move`, `email_label`, `label_create`, `labels_list`, `email_batch_operations`
+- `email_move`, `email_label`, `email_create_label`, `email_list_labels`, `email_batch_operations`
 
 ### Attachments
-- `attachment_list`
-- `attachment_download`
-- `attachment_upload`
+- `email_list_attachments`
+- `email_download_attachment`
+- `email_upload_attachment`
 
 ### Calendar
 - `calendar_list`
 - `event_list`, `event_get`, `event_create`, `event_update`, `event_delete`
-- `calendar_availability`, `event_respond`, `event_search`, `event_quick_add`, `events_upcoming`
+- `calendar_get_availability`, `event_respond`, `event_search`, `event_quick_add`, `event_upcoming`
 
 ### Templates
-- `email_templates_list`
-- `email_template_render`
-- `email_template_create`
+- `template_list`
+- `template_render`
+- `template_create`
 
 ## Notes on setup
 
