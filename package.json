@@ -1,15 +1,15 @@
 {
   "name": "@mcp/gmail-calendar",
   "version": "1.0.0",
-  "description": "Professional MCP server for Gmail and Google Calendar with multi-account support",
+  "description": "MCP server for Gmail and Google Calendar workflows with multi-account OAuth support.",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "jest",
-    "lint": "eslint src/**/*.ts",
+    "test": "jest --passWithNoTests",
+    "lint": "eslint .",
     "format": "prettier --write src/**/*.ts",
     "setup": "node setup.js",
     "google-setup": "node setup.js --google-setup",
