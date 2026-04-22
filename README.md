@@ -15,7 +15,7 @@ Most MCP setups treat inbox and calendar work as separate integrations. This pro
 
 ## What it includes
 
-- 36 MCP tools across account, Gmail, Calendar, attachment, and template workflows
+- 35 MCP tools across account, Gmail, Calendar, attachment, and template workflows
 - OAuth2 authentication for personal Gmail and Google Workspace accounts
 - Multi-account switching
 - Gmail search, send, reply, forward, label, and batch operations
@@ -118,7 +118,8 @@ After authentication, use `list_accounts` or `switch_account` before Gmail or Ca
 ### Attachments
 - `email_list_attachments`
 - `email_download_attachment`
-- `email_upload_attachment`
+
+Note: `email_download_attachment.savePath` is treated as a filename hint only. Attachments are written into the local sandbox under `ATTACHMENT_DOWNLOAD_DIR/<account>/` to avoid arbitrary filesystem writes.
 
 ### Calendar
 - `calendar_list`
@@ -134,6 +135,7 @@ After authentication, use `list_accounts` or `switch_account` before Gmail or Ca
 
 - The server expects Google OAuth desktop credentials, not a service account.
 - Tokens are stored locally using the configured `TOKENS_PATH`.
+- Downloaded attachments are sandboxed under `ATTACHMENT_DOWNLOAD_DIR` (default: `./attachments/downloads`).
 - Some operations require selecting an authenticated account first.
 - The server also exposes `gmail://account/{email}` and `calendar://account/{email}` resources.
 

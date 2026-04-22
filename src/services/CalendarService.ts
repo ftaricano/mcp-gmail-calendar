@@ -74,24 +74,26 @@ export class CalendarService {
   private logger: Logger;
   private cache: CacheManager;
   private defaultTimeZone: string;
+  private accountEmail: string;
 
-  constructor(auth: OAuth2Client, cache: CacheManager) {
+  constructor(auth: OAuth2Client, cache: CacheManager, accountEmail: string) {
     this.calendar = google.calendar({ version: 'v3', auth });
     this.logger = new Logger('CalendarService');
     this.cache = cache;
     this.defaultTimeZone = process.env.DEFAULT_CALENDAR_TIMEZONE || 'America/New_York';
+    this.accountEmail = accountEmail.trim().toLowerCase();
   }
 
   async listCalendars(): Promise<any[]> {
     try {
       const cacheKey = 'calendar:list';
-      const cached = this.cache.get(cacheKey);
+      const cached = this.cache.getAccountCache(this.accountEmail, cacheKey);
       if (cached) return cached;
 
       const response = await this.calendar.calendarList.list();
       const calendars = response.data.items || [];
       
-      this.cache.set(cacheKey, calendars);
+      this.cache.setAccountCache(this.accountEmail, cacheKey, calendars);
       return calendars;
     } catch (error) {
       this.logger.error('Failed to list calendars:', error);
@@ -174,7 +176,7 @@ export class CalendarService {
       });
 
       // Clear cache
-      this.cache.delete(`calendar:events:${calendarId}`);
+      this.cache.deleteAccountCache(this.accountEmail, `calendar:events:${calendarId}`);
       
       return this.formatEvent(response.data);
     } catch (error) {
@@ -204,7 +206,7 @@ export class CalendarService {
       });
 
       // Clear cache
-      this.cache.delete(`calendar:events:${calendarId}`);
+      this.cache.deleteAccountCache(this.accountEmail, `calendar:events:${calendarId}`);
       
       return this.formatEvent(response.data);
     } catch (error) {
@@ -222,7 +224,7 @@ export class CalendarService {
       });
 
       // Clear cache
-      this.cache.delete(`calendar:events:${calendarId}`);
+      this.cache.deleteAccountCache(this.accountEmail, `calendar:events:${calendarId}`);
     } catch (error) {
       this.logger.error(`Failed to delete event ${eventId}:`, error);
       throw error;
@@ -289,7 +291,7 @@ export class CalendarService {
       });
 
       // Clear cache
-      this.cache.delete(`calendar:events:${calendarId}`);
+      this.cache.deleteAccountCache(this.accountEmail, `calendar:events:${calendarId}`);
       
       return this.formatEvent(response.data);
     } catch (error) {

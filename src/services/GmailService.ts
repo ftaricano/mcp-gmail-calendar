@@ -9,6 +9,7 @@ import { EmailParser } from '../utils/EmailParser.js';
 import fs from 'fs/promises';
 import path from 'path';
 import mime from 'mime-types';
+import { sanitizeFilename } from '../utils/Validator.js';
 
 export interface EmailListOptions {
   maxResults?: number;
@@ -69,12 +70,13 @@ export class GmailService {
   public templateEngine: TemplateEngine;
   private attachmentHandler: AttachmentHandler;
   private emailParser: EmailParser;
-  private userEmail: string = '';
+  private accountEmail: string;
 
-  constructor(auth: OAuth2Client, cache: CacheManager) {
+  constructor(auth: OAuth2Client, cache: CacheManager, accountEmail: string) {
     this.gmail = google.gmail({ version: 'v1', auth });
     this.logger = new Logger('GmailService');
     this.cache = cache;
+    this.accountEmail = accountEmail.trim().toLowerCase();
     this.templateEngine = new TemplateEngine();
     this.attachmentHandler = new AttachmentHandler();
     this.emailParser = new EmailParser();
@@ -83,13 +85,11 @@ export class GmailService {
   async getAccountInfo(): Promise<any> {
     try {
       const cacheKey = 'gmail:profile';
-      const cached = this.cache.get(cacheKey);
+      const cached = this.cache.getAccountCache(this.accountEmail, cacheKey);
       if (cached) return cached;
 
       const response = await this.gmail.users.getProfile({ userId: 'me' });
       const profile = response.data;
-      
-      this.userEmail = profile.emailAddress || '';
       
       const result = {
         email: profile.emailAddress,
@@ -98,7 +98,7 @@ export class GmailService {
         historyId: profile.historyId,
       };
 
-      this.cache.set(cacheKey, result);
+      this.cache.setAccountCache(this.accountEmail, cacheKey, result);
       return result;
     } catch (error) {
       this.logger.error('Failed to get account info:', error);
@@ -109,13 +109,13 @@ export class GmailService {
   async listLabels(): Promise<any[]> {
     try {
       const cacheKey = 'gmail:labels';
-      const cached = this.cache.get(cacheKey);
+      const cached = this.cache.getAccountCache(this.accountEmail, cacheKey);
       if (cached) return cached;
 
       const response = await this.gmail.users.labels.list({ userId: 'me' });
       const labels = response.data.labels || [];
       
-      this.cache.set(cacheKey, labels);
+      this.cache.setAccountCache(this.accountEmail, cacheKey, labels);
       return labels;
     } catch (error) {
       this.logger.error('Failed to list labels:', error);
@@ -449,7 +449,7 @@ export class GmailService {
       });
 
       // Clear labels cache
-      this.cache.delete('gmail:labels');
+      this.cache.deleteAccountCache(this.accountEmail, 'gmail:labels');
       
       return response.data.id || '';
     } catch (error) {
@@ -694,14 +694,16 @@ export class GmailService {
 
   async handleDownloadAttachment(args: any): Promise<{ content: Array<TextContent | ImageContent> }> {
     const attachment = await this.getAttachment(args.messageId, args.attachmentId);
+    const attachmentInfo = await this.getAttachmentInfo(args.messageId, args.attachmentId);
     
-    // Save to disk if path provided
+    // Save to sandbox if filename hint provided
     if (args.savePath) {
-      await fs.writeFile(args.savePath, attachment);
+      const resolvedPath = await this.resolveAttachmentSavePath(args.savePath, attachmentInfo?.filename);
+      await fs.writeFile(resolvedPath, attachment);
       return {
         content: [{
           type: 'text',
-          text: `Attachment saved to: ${args.savePath}`,
+          text: `Attachment saved to sandbox path: ${resolvedPath}`,
         }],
       };
     }
@@ -712,6 +714,7 @@ export class GmailService {
         type: 'text',
         text: JSON.stringify({
           attachmentId: args.attachmentId,
+          filename: attachmentInfo?.filename,
           content: attachment.toString('base64'),
           size: attachment.length,
         }, null, 2),
@@ -747,5 +750,23 @@ export class GmailService {
         text: `Template '${args.name}' created successfully`,
       }],
     };
+  }
+
+  private async getAttachmentInfo(messageId: string, attachmentId: string): Promise<AttachmentInfo | undefined> {
+    const email = await this.getEmailById(messageId);
+    return email.attachments?.find((item) => item.id === attachmentId);
+  }
+
+  private async resolveAttachmentSavePath(savePath: string, attachmentFilename?: string): Promise<string> {
+    const downloadRoot = path.resolve(process.env.ATTACHMENT_DOWNLOAD_DIR || './attachments/downloads');
+    const accountDir = path.join(downloadRoot, sanitizeFilename(this.accountEmail));
+
+    await fs.mkdir(accountDir, { recursive: true });
+
+    const requestedName = typeof savePath === 'string' ? savePath.trim() : '';
+    const fallbackName = attachmentFilename || 'attachment.bin';
+    const safeName = sanitizeFilename(path.basename(requestedName || fallbackName)) || 'attachment.bin';
+
+    return path.join(accountDir, safeName);
   }
 }
