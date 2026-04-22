@@ -1,32 +1,74 @@
 import winston from 'winston';
 import path from 'path';
 
+const redactedKeys = new Set([
+  'accessToken',
+  'access_token',
+  'apiKey',
+  'apikey',
+  'args',
+  'authorization',
+  'bcc',
+  'body',
+  'bodyHtml',
+  'clientSecret',
+  'client_secret',
+  'content',
+  'cookie',
+  'credentials',
+  'html',
+  'idToken',
+  'id_token',
+  'raw',
+  'refreshToken',
+  'refresh_token',
+  'secret',
+  'token',
+]);
+
+export function sanitizeLogMeta(meta: unknown): unknown {
+  return redactLogValue(meta, new WeakSet<object>());
+}
+
+function redactLogValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactLogValue(item, seen));
+  }
+
+  if (value instanceof Error) {
+    return {
+      error: value.message,
+      stack: value.stack,
+    };
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value as object)) {
+      return '[Circular]';
+    }
+
+    seen.add(value as object);
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => {
+        if (redactedKeys.has(key)) {
+          return [key, '[REDACTED]'];
+        }
+
+        return [key, redactLogValue(entryValue, seen)];
+      })
+    );
+  }
+
+  return value;
+}
+
 export class Logger {
   private logger: winston.Logger;
-  private static readonly redactedKeys = new Set([
-    'accessToken',
-    'access_token',
-    'apiKey',
-    'apikey',
-    'args',
-    'authorization',
-    'bcc',
-    'body',
-    'bodyHtml',
-    'clientSecret',
-    'client_secret',
-    'content',
-    'cookie',
-    'credentials',
-    'html',
-    'idToken',
-    'id_token',
-    'raw',
-    'refreshToken',
-    'refresh_token',
-    'secret',
-    'token',
-  ]);
 
   constructor(module: string) {
     const logLevel = process.env.LOG_LEVEL || 'info';
@@ -113,43 +155,6 @@ export class Logger {
   }
 
   private sanitizeMeta(meta: unknown): unknown {
-    return this.redactValue(meta, new WeakSet<object>());
-  }
-
-  private redactValue(value: unknown, seen: WeakSet<object>): unknown {
-    if (value === null || value === undefined) {
-      return value;
-    }
-
-    if (Array.isArray(value)) {
-      return value.map((item) => this.redactValue(item, seen));
-    }
-
-    if (value instanceof Error) {
-      return {
-        error: value.message,
-        stack: value.stack,
-      };
-    }
-
-    if (typeof value === 'object') {
-      if (seen.has(value as object)) {
-        return '[Circular]';
-      }
-
-      seen.add(value as object);
-
-      return Object.fromEntries(
-        Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => {
-          if (Logger.redactedKeys.has(key)) {
-            return [key, '[REDACTED]'];
-          }
-
-          return [key, this.redactValue(entryValue, seen)];
-        })
-      );
-    }
-
-    return value;
+    return sanitizeLogMeta(meta);
   }
 }

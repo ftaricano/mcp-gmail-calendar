@@ -8,7 +8,7 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "jest --passWithNoTests",
+    "test": "tsx --test tests/**/*.test.ts",
     "lint": "eslint .",
     "format": "prettier --write src/**/*.ts",
     "setup": "node -e \"console.log('Manual setup only: copy .env.example to .env and follow README.md')\"",

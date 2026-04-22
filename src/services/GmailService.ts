@@ -63,6 +63,24 @@ export interface SendEmailOptions {
   importance?: 'low' | 'normal' | 'high';
 }
 
+export function buildAttachmentDownloadPath(
+  accountEmail: string,
+  savePath: string,
+  attachmentFilename?: string
+): { downloadRoot: string; accountDir: string; resolvedPath: string } {
+  const downloadRoot = path.resolve(process.env.ATTACHMENT_DOWNLOAD_DIR || './attachments/downloads');
+  const accountDir = path.join(downloadRoot, sanitizeFilename(accountEmail.trim().toLowerCase()));
+  const requestedName = typeof savePath === 'string' ? savePath.trim() : '';
+  const fallbackName = attachmentFilename || 'attachment.bin';
+  const safeName = sanitizeFilename(path.basename(requestedName || fallbackName)) || 'attachment.bin';
+
+  return {
+    downloadRoot,
+    accountDir,
+    resolvedPath: path.join(accountDir, safeName),
+  };
+}
+
 export class GmailService {
   private gmail: gmail_v1.Gmail;
   private logger: Logger;
@@ -758,15 +776,14 @@ export class GmailService {
   }
 
   private async resolveAttachmentSavePath(savePath: string, attachmentFilename?: string): Promise<string> {
-    const downloadRoot = path.resolve(process.env.ATTACHMENT_DOWNLOAD_DIR || './attachments/downloads');
-    const accountDir = path.join(downloadRoot, sanitizeFilename(this.accountEmail));
+    const { accountDir, resolvedPath } = buildAttachmentDownloadPath(
+      this.accountEmail,
+      savePath,
+      attachmentFilename
+    );
 
     await fs.mkdir(accountDir, { recursive: true });
 
-    const requestedName = typeof savePath === 'string' ? savePath.trim() : '';
-    const fallbackName = attachmentFilename || 'attachment.bin';
-    const safeName = sanitizeFilename(path.basename(requestedName || fallbackName)) || 'attachment.bin';
-
-    return path.join(accountDir, safeName);
+    return resolvedPath;
   }
 }
