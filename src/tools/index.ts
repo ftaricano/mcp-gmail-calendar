@@ -465,7 +465,7 @@ export const listAttachmentsTool: Tool = {
 
 export const downloadAttachmentTool: Tool = {
   name: 'email_download_attachment',
-  description: 'Download an email attachment',
+  description: 'Download an email attachment. If savePath is provided, only the sanitized filename is used and the file is written inside the local attachment sandbox.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -479,33 +479,10 @@ export const downloadAttachmentTool: Tool = {
       },
       savePath: {
         type: 'string',
-        description: 'Optional local path to save the attachment',
+        description: 'Optional filename hint for saving inside the local attachment sandbox',
       },
     },
     required: ['messageId', 'attachmentId'],
-  },
-};
-
-export const uploadAttachmentTool: Tool = {
-  name: 'email_upload_attachment',
-  description: 'Upload and prepare an attachment for email sending',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      filename: {
-        type: 'string',
-        description: 'Attachment filename',
-      },
-      content: {
-        type: 'string',
-        description: 'Base64 encoded attachment content',
-      },
-      contentType: {
-        type: 'string',
-        description: 'MIME type of the attachment',
-      },
-    },
-    required: ['filename', 'content'],
   },
 };
 

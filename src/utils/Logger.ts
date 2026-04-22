@@ -3,6 +3,30 @@ import path from 'path';
 
 export class Logger {
   private logger: winston.Logger;
+  private static readonly redactedKeys = new Set([
+    'accessToken',
+    'access_token',
+    'apiKey',
+    'apikey',
+    'args',
+    'authorization',
+    'bcc',
+    'body',
+    'bodyHtml',
+    'clientSecret',
+    'client_secret',
+    'content',
+    'cookie',
+    'credentials',
+    'html',
+    'idToken',
+    'id_token',
+    'raw',
+    'refreshToken',
+    'refresh_token',
+    'secret',
+    'token',
+  ]);
 
   constructor(module: string) {
     const logLevel = process.env.LOG_LEVEL || 'info';
@@ -10,7 +34,7 @@ export class Logger {
 
     // Create logs directory if it doesn't exist
     const logDir = path.dirname(logFilePath);
-    
+
     const transports: winston.transport[] = [
       new winston.transports.Console({
         format: winston.format.combine(
@@ -66,15 +90,15 @@ export class Logger {
   }
 
   debug(message: string, meta?: any): void {
-    this.logger.debug(message, meta);
+    this.logger.debug(message, this.sanitizeMeta(meta));
   }
 
   info(message: string, meta?: any): void {
-    this.logger.info(message, meta);
+    this.logger.info(message, this.sanitizeMeta(meta));
   }
 
   warn(message: string, meta?: any): void {
-    this.logger.warn(message, meta);
+    this.logger.warn(message, this.sanitizeMeta(meta));
   }
 
   error(message: string, error?: any): void {
@@ -84,7 +108,48 @@ export class Logger {
         stack: error.stack,
       });
     } else {
-      this.logger.error(message, error);
+      this.logger.error(message, this.sanitizeMeta(error));
     }
+  }
+
+  private sanitizeMeta(meta: unknown): unknown {
+    return this.redactValue(meta, new WeakSet<object>());
+  }
+
+  private redactValue(value: unknown, seen: WeakSet<object>): unknown {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.redactValue(item, seen));
+    }
+
+    if (value instanceof Error) {
+      return {
+        error: value.message,
+        stack: value.stack,
+      };
+    }
+
+    if (typeof value === 'object') {
+      if (seen.has(value as object)) {
+        return '[Circular]';
+      }
+
+      seen.add(value as object);
+
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => {
+          if (Logger.redactedKeys.has(key)) {
+            return [key, '[REDACTED]'];
+          }
+
+          return [key, this.redactValue(entryValue, seen)];
+        })
+      );
+    }
+
+    return value;
   }
 }

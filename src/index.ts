@@ -106,7 +106,6 @@ class GmailCalendarMCPServer {
       // Attachment Tools
       tools.listAttachmentsTool,
       tools.downloadAttachmentTool,
-      tools.uploadAttachmentTool,
 
       // Calendar Tools
       tools.listCalendarsTool,
@@ -225,7 +224,7 @@ class GmailCalendarMCPServer {
 
   private async handleToolCall(name: string, args: any): Promise<{ content: Array<TextContent | ImageContent> }> {
     try {
-      this.logger.info(`Handling tool call: ${name}`, { args });
+      this.logger.info(`Handling tool call: ${name}`, this.summarizeToolArgs(args));
 
       // Account management tools
       if (name === 'authenticate') {
@@ -574,13 +573,37 @@ class GmailCalendarMCPServer {
       );
     }
 
-    this.gmailService = new GmailService(auth, this.cache);
-    this.calendarService = new CalendarService(auth, this.cache);
+    this.gmailService = new GmailService(auth, this.cache, email);
+    this.calendarService = new CalendarService(auth, this.cache, email);
     
     // Initialize template engine
     if (this.gmailService && this.gmailService.templateEngine) {
       await this.gmailService.templateEngine.initialize();
     }
+  }
+
+  private summarizeToolArgs(args: Record<string, unknown> | undefined): Record<string, unknown> {
+    if (!args || typeof args !== 'object') {
+      return { argKeys: [] };
+    }
+
+    const summary: Record<string, unknown> = {
+      argKeys: Object.keys(args),
+    };
+
+    if (typeof args.email === 'string') {
+      summary.email = args.email;
+    }
+
+    if (typeof args.messageId === 'string') {
+      summary.messageId = args.messageId;
+    }
+
+    if (typeof args.attachmentId === 'string') {
+      summary.attachmentId = args.attachmentId;
+    }
+
+    return summary;
   }
 }
 

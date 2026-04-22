@@ -4,6 +4,7 @@ import { Logger } from './Logger.js';
 export class CacheManager {
   private cache: NodeCache;
   private logger: Logger;
+  private statsInterval?: NodeJS.Timeout;
 
   constructor() {
     const ttl = parseInt(process.env.CACHE_TTL || '300'); // 5 minutes default
@@ -18,17 +19,25 @@ export class CacheManager {
     this.logger = new Logger('CacheManager');
 
     // Log cache statistics periodically
-    setInterval(() => {
+    this.statsInterval = setInterval(() => {
       const stats = this.cache.getStats();
-      this.logger.debug('Cache statistics', stats);
+      this.logger.debug('Cache statistics', {
+        keys: stats.keys,
+        hits: stats.hits,
+        misses: stats.misses,
+        ksize: stats.ksize,
+        vsize: stats.vsize,
+      });
     }, 5 * 60 * 1000); // Every 5 minutes
+
+    this.statsInterval.unref?.();
   }
 
   set(key: string, value: any, ttl?: number): boolean {
     try {
       const success = this.cache.set(key, value, ttl ?? 0);
       if (success) {
-        this.logger.debug(`Cache set: ${key}`);
+        this.logger.debug('Cache set', { scope: this.getScopeFromKey(key) });
       }
       return success;
     } catch (error) {
@@ -41,9 +50,9 @@ export class CacheManager {
     try {
       const value = this.cache.get<T>(key);
       if (value !== undefined) {
-        this.logger.debug(`Cache hit: ${key}`);
+        this.logger.debug('Cache hit', { scope: this.getScopeFromKey(key) });
       } else {
-        this.logger.debug(`Cache miss: ${key}`);
+        this.logger.debug('Cache miss', { scope: this.getScopeFromKey(key) });
       }
       return value;
     } catch (error) {
@@ -59,7 +68,7 @@ export class CacheManager {
   delete(key: string): number {
     try {
       const result = this.cache.del(key);
-      this.logger.debug(`Cache delete: ${key}`);
+      this.logger.debug('Cache delete', { scope: this.getScopeFromKey(key) });
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete cache key ${key}:`, error);
@@ -82,19 +91,20 @@ export class CacheManager {
 
   // Account-specific cache methods
   setAccountCache(email: string, key: string, value: any, ttl?: number): boolean {
-    return this.set(`${email}:${key}`, value, ttl);
+    return this.set(this.namespaceKey(email, key), value, ttl);
   }
 
   getAccountCache<T = any>(email: string, key: string): T | undefined {
-    return this.get<T>(`${email}:${key}`);
+    return this.get<T>(this.namespaceKey(email, key));
   }
 
   deleteAccountCache(email: string, key?: string): number {
     if (key) {
-      return this.delete(`${email}:${key}`);
+      return this.delete(this.namespaceKey(email, key));
     } else {
       // Delete all cache entries for this account
-      const keys = this.cache.keys().filter(k => k.startsWith(`${email}:`));
+      const prefix = `${this.normalizeAccountKey(email)}:`;
+      const keys = this.cache.keys().filter((k) => k.startsWith(prefix));
       let deleted = 0;
       for (const key of keys) {
         deleted += this.delete(key);
@@ -138,13 +148,13 @@ export class CacheManager {
 
   // Pattern-based operations
   deletePattern(pattern: RegExp): number {
-    const keys = this.cache.keys().filter(key => pattern.test(key));
+    const keys = this.cache.keys().filter((key) => pattern.test(key));
     return this.deleteBatch(keys);
   }
 
   getKeys(pattern?: RegExp): string[] {
     const keys = this.cache.keys();
-    return pattern ? keys.filter(key => pattern.test(key)) : keys;
+    return pattern ? keys.filter((key) => pattern.test(key)) : keys;
   }
 
   // Memory management
@@ -164,5 +174,17 @@ export class CacheManager {
     } catch (error) {
       this.logger.error('Cache warm-up failed:', error);
     }
+  }
+
+  private namespaceKey(email: string, key: string): string {
+    return `${this.normalizeAccountKey(email)}:${key}`;
+  }
+
+  private normalizeAccountKey(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  private getScopeFromKey(key: string): string {
+    return key.includes(':') ? 'namespaced' : 'global';
   }
 }
