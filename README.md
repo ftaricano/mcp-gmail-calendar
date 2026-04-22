@@ -15,7 +15,7 @@ Most MCP setups treat inbox and calendar work as separate integrations. This pro
 
 ## What it includes
 
-- 35 MCP tools across account, Gmail, Calendar, attachment, and template workflows
+- 36 MCP tools across account, Gmail, Calendar, attachment, and template workflows
 - OAuth2 authentication for personal Gmail and Google Workspace accounts
 - Multi-account switching
 - Gmail search, send, reply, forward, label, and batch operations
