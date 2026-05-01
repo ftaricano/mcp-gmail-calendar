@@ -1,152 +1,206 @@
-# Gmail & Google Calendar MCP Server
+# gws — Google Workspace CLI + MCP
 
 Status: beta
 
-MCP server for Gmail and Google Calendar workflows. It combines email operations, calendar management, multi-account OAuth, attachments, and reusable email templates in a single local server.
+`gws` is a CLI-first Google Workspace tool for local automation. It currently wraps Gmail and Google Calendar workflows, with the existing MCP server preserved as `gws-mcp` for assistant clients.
 
-## Why this exists
+The direction is deliberate: the CLI is the primary product surface; MCP is a compatibility adapter.
 
-Most MCP setups treat inbox and calendar work as separate integrations. This project keeps those workflows together so an assistant can:
-- authenticate one or more Google accounts,
-- read and send email,
-- manage labels and attachments,
-- create and update calendar events,
-- switch accounts when personal and workspace contexts differ.
+## What it includes today
 
-## What it includes
+- `gws` CLI binary for account, config, Gmail, and Calendar commands
+- `gws-mcp` binary preserving the existing stdio MCP server
+- OAuth2 for personal Gmail and Google Workspace accounts
+- Multi-account state via `~/.config/gws/state.json`
+- JSON-first output for scripts, plus table/jsonl/tsv formats
+- Gmail list/search/read commands
+- Calendar list/upcoming commands
+- Existing MCP toolset for Gmail, Calendar, attachments, and templates
 
-- 35 MCP tools across account, Gmail, Calendar, attachment, and template workflows
-- OAuth2 authentication for personal Gmail and Google Workspace accounts
-- Multi-account switching
-- Gmail search, send, reply, forward, label, and batch operations
-- Calendar listing, event CRUD, availability checks, invitation responses, and quick add
-- HTML email template rendering and custom templates
-- MCP resources for account-level Gmail and Calendar snapshots
-
-## Quickstart
-
-Prerequisites:
-- Node.js 18+
-- A Google Cloud project with Gmail API and Google Calendar API enabled
-- OAuth client credentials created as a Desktop application
-
-1. Install dependencies
+## Install
 
 ```bash
 git clone https://github.com/ftaricano/mcp-gmail-calendar.git
 cd mcp-gmail-calendar
 npm install
+npm run build
+npm link
 ```
 
-2. Configure environment
+Prerequisites:
+
+- Node.js 20+
+- Google Cloud OAuth credentials
+- Gmail API and Google Calendar API enabled
+
+Configure environment:
 
 ```bash
 cp .env.example .env
 ```
 
-Set at least these values in `.env`:
+Set at least:
 
 ```env
 GOOGLE_CREDENTIALS_PATH=/absolute/path/to/credentials.json
+TOKENS_PATH=/absolute/path/to/tokens
 OAUTH_CALLBACK_PORT=3000
-TOKENS_PATH=./tokens
 LOG_LEVEL=info
 ```
 
-3. Build the server
+## CLI quickstart
+
+Authenticate:
 
 ```bash
-npm run build
+gws auth login --account you@example.com --type workspace
 ```
 
-4. Add it to your MCP client
+List accounts:
+
+```bash
+gws auth list
+```
+
+Set the default account:
+
+```bash
+gws auth switch you@example.com
+```
+
+Show current account:
+
+```bash
+gws auth current
+```
+
+Inspect CLI paths:
+
+```bash
+gws config path
+```
+
+Set config values:
+
+```bash
+gws config set timezone America/Sao_Paulo
+gws config list
+```
+
+List recent mail:
+
+```bash
+gws mail list --query "is:unread" --limit 10
+```
+
+Read an email:
+
+```bash
+gws mail read MESSAGE_ID
+```
+
+Search mail:
+
+```bash
+gws mail search "from:client@example.com has:attachment" --limit 20
+```
+
+List calendars:
+
+```bash
+gws cal calendars
+```
+
+List upcoming events:
+
+```bash
+gws cal events upcoming --days 7 --limit 10
+```
+
+List events in a window:
+
+```bash
+gws cal events list --from 2026-05-01T00:00:00-03:00 --to 2026-05-08T00:00:00-03:00
+```
+
+## Output formats
+
+Default output is JSON and stdout is kept data-only for successful commands.
+
+```bash
+gws mail list --format json
+gws mail list --format table
+gws mail list --format jsonl
+gws mail list --format tsv
+```
+
+`yaml` is reserved but not bundled yet.
+
+## Account resolution
+
+Commands resolve the active account in this order:
+
+1. `--account you@example.com`
+2. `GWS_ACCOUNT` environment variable
+3. `~/.config/gws/state.json` current account
+4. first authenticated account
+5. auth error
+
+## MCP compatibility
+
+The MCP server is still available as `gws-mcp` and preserves the current tool names.
+
+Example MCP config:
 
 ```json
 {
   "mcpServers": {
     "gmail-calendar": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-gmail-calendar/dist/index.js"],
+      "command": "gws-mcp",
       "env": {
         "GOOGLE_CREDENTIALS_PATH": "/absolute/path/to/credentials.json",
-        "OAUTH_CALLBACK_PORT": "3000",
-        "TOKENS_PATH": "/absolute/path/to/mcp-gmail-calendar/tokens"
+        "TOKENS_PATH": "/absolute/path/to/tokens",
+        "OAUTH_CALLBACK_PORT": "3000"
       }
     }
   }
 }
 ```
 
-5. Authenticate the first account
+Existing direct path usage also works:
 
-Use the `authenticate` tool from your MCP client:
-
-```json
-{
-  "name": "authenticate",
-  "arguments": {
-    "email": "you@example.com",
-    "accountType": "personal"
-  }
-}
+```bash
+node /absolute/path/to/mcp-gmail-calendar/dist/index.js
 ```
 
-After authentication, use `list_accounts` or `switch_account` before Gmail or Calendar actions when needed.
+## MCP tool groups
 
-## Typical use cases
-
-- triage and reply to inbox messages without leaving the MCP client,
-- create calendar events from email context,
-- manage separate personal and work Google accounts,
-- generate templated outbound email with attachments,
-- inspect upcoming events or free/busy windows before scheduling.
-
-## Tool groups
-
-### Account management
-- `authenticate`
-- `list_accounts`
-- `switch_account`
-- `remove_account`
-- `get_current_account`
-
-### Gmail
-- `email_list`, `email_read`, `email_send`, `email_reply`, `email_forward`
-- `email_delete`, `email_mark_read`, `email_mark_unread`, `email_search`
-- `email_move`, `email_label`, `email_create_label`, `email_list_labels`, `email_batch_operations`
-
-### Attachments
-- `email_list_attachments`
-- `email_download_attachment`
-
-Note: `email_download_attachment.savePath` is treated as a filename hint only. Attachments are written into the local sandbox under `ATTACHMENT_DOWNLOAD_DIR/<account>/` to avoid arbitrary filesystem writes.
-
-### Calendar
-- `calendar_list`
-- `event_list`, `event_get`, `event_create`, `event_update`, `event_delete`
-- `calendar_get_availability`, `event_respond`, `event_search`, `event_quick_add`, `event_upcoming`
-
-### Templates
-- `template_list`
-- `template_render`
-- `template_create`
-
-## Notes on setup
-
-- The server expects Google OAuth desktop credentials, not a service account.
-- Tokens are stored locally using the configured `TOKENS_PATH`.
-- Downloaded attachments are sandboxed under `ATTACHMENT_DOWNLOAD_DIR` (default: `./attachments/downloads`).
-- Some operations require selecting an authenticated account first.
-- The server also exposes `gmail://account/{email}` and `calendar://account/{email}` resources.
+- Account: `authenticate`, `list_accounts`, `switch_account`, `remove_account`, `get_current_account`
+- Gmail: `email_list`, `email_read`, `email_send`, `email_reply`, `email_forward`, `email_delete`, `email_mark_read`, `email_mark_unread`, `email_search`, labels, batch operations
+- Attachments: `email_list_attachments`, `email_download_attachment`
+- Calendar: `calendar_list`, `event_list`, `event_get`, `event_create`, `event_update`, `event_delete`, availability, invitation response, quick add, upcoming
+- Templates: list, render, create
 
 ## Development
 
 ```bash
+npm run cli -- --help
 npm run build
-npm run lint
 npm test
+npm run lint
 ```
 
-## License
+CI runs lint, build, and tests on Node 20 and 22.
 
-MIT
+## Roadmap
+
+- Refactor service layer so CLI and MCP both wrap pure Google Workspace operations
+- Add Drive commands
+- Add Sheets commands
+- Add Docs commands
+- Add People/Contacts commands
+- Add incremental OAuth scopes per Workspace surface
+
+## Security
+
+See [SECURITY.md](SECURITY.md). Tokens stay local and are never printed by CLI account commands.

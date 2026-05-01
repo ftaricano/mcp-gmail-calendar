@@ -260,9 +260,19 @@ export class GoogleAuthManager {
     };
 
     const tokenPath = path.join(this.tokensPath, `${email}.json`);
-    await fs.writeFile(tokenPath, JSON.stringify(tokenData, null, 2));
+    await fs.mkdir(this.tokensPath, { recursive: true, mode: 0o700 });
+    await fs.writeFile(tokenPath, JSON.stringify(tokenData, null, 2), { mode: 0o600 });
+    await fs.chmod(tokenPath, 0o600);
     
     this.logger.info(`Saved tokens for ${email}`);
+  }
+
+  cleanupAuthServers(): void {
+    for (const [state, server] of this.authServers.entries()) {
+      server.close();
+      this.authServers.delete(state);
+      this.pendingAuthUrls.delete(state);
+    }
   }
 
   async getAuthClient(email: string): Promise<OAuth2Client | null> {
@@ -350,8 +360,10 @@ export class GoogleAuthManager {
           this.logger.error(`Failed to read account info from ${file}:`, error);
         }
       }
-    } catch (error) {
-      this.logger.error('Failed to list accounts:', error);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') {
+        this.logger.error('Failed to list accounts:', error);
+      }
     }
     
     return accounts;
