@@ -149,7 +149,7 @@ export class CalendarService {
     }
   }
 
-  async createEvent(event: CalendarEvent, calendarId: string = 'primary'): Promise<CalendarEvent> {
+  async createEvent(event: CalendarEvent, calendarId: string = 'primary', sendNotifications: boolean = true): Promise<CalendarEvent> {
     try {
       // Set default reminders if not provided
       if (!event.reminders) {
@@ -171,7 +171,7 @@ export class CalendarService {
       const response = await this.calendar.events.insert({
         calendarId,
         conferenceDataVersion,
-        sendNotifications: true,
+        sendNotifications,
         requestBody: event as calendar_v3.Schema$Event,
       });
 
@@ -252,7 +252,8 @@ export class CalendarService {
   async respondToInvitation(
     calendarId: string,
     eventId: string,
-    response: 'accepted' | 'declined' | 'tentative'
+    response: 'accepted' | 'declined' | 'tentative' | 'needsAction',
+    comment?: string,
   ): Promise<CalendarEvent> {
     try {
       // Get the event
@@ -271,6 +272,7 @@ export class CalendarService {
           attendees: attendees.map(attendee => ({
             ...attendee,
             responseStatus: response,
+            ...(comment ? { comment } : {}),
           })),
         },
       });
@@ -489,7 +491,8 @@ export class CalendarService {
     const event = await this.respondToInvitation(
       args.calendarId,
       args.eventId,
-      args.response
+      args.response,
+      args.comment,
     );
     return {
       content: [{

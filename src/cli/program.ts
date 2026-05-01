@@ -1,54 +1,83 @@
 import { Command } from 'commander';
-import dotenv from 'dotenv';
-import { GoogleAuthManager } from '../auth/GoogleAuthManager.js';
-import { CacheManager } from '../utils/CacheManager.js';
-import { formatOutput, OutputFormat } from './output/formatters.js';
-import { errorPayload, exitCodeFor, ValidationCliError } from './errors.js';
-import { calendarFor, gmailFor, requireKnownAccount, resolveAccount, switchCurrentAccount } from './context.js';
-import { configPath, loadConfig, loadState, saveConfig, saveState, statePath } from './config.js';
+import type { CalendarEvent } from '../services/CalendarService.js';
+import { buildCalendarEventPayload, buildFreeBusyPayload, ensureCreatableEvent, materializeConferenceRequest } from './calendar-payloads.js';
+import {
+  type AuthManagerLike,
+  type CliServiceFactories,
+  requireKnownAccount,
+  resolveAccount,
+  switchCurrentAccount,
+} from './context.js';
+import { buildDocsCreatePayload, buildSheetsValuesPayload, collectValues, normalizeDocsExportMimeType, parseEnumValue, parsePositiveInteger } from './parsers.js';
+import { buildMailPayload, buildMailPayloadPreview } from './mail-payloads.js';
+import {
+  type CliRuntime,
+  type CreateProgramOptions,
+  createCliRuntime,
+  installSignalHandlers,
+  runAction,
+} from './runtime.js';
 
-dotenv.config();
+export type { AuthManagerLike, CliServiceFactories, CreateProgramOptions };
 
-function collect(value: string, previous: string[] = []): string[] {
-  previous.push(value);
-  return previous;
+function globals(program: Command): { account?: string; dryRun?: boolean } {
+  return program.optsWithGlobals() as { account?: string; dryRun?: boolean };
 }
 
-function parseFormat(value: string): OutputFormat {
-  if (['json', 'table', 'jsonl', 'tsv', 'yaml'].includes(value)) return value as OutputFormat;
-  throw new ValidationCliError(`Unsupported format: ${value}`);
+async function currentAccount(program: Command, runtime: CliRuntime): Promise<string> {
+  return resolveAccount(runtime.authManager, globals(program).account, runtime.loadState);
 }
 
-function emit(program: Command, data: unknown): void {
-  const opts = program.optsWithGlobals();
-  process.stdout.write(`${formatOutput(data, parseFormat(opts.format || 'json'))}\n`);
+async function defaultTimezone(runtime: CliRuntime, explicit?: string): Promise<string> {
+  if (explicit) return explicit;
+  const config = await runtime.loadConfig();
+  return typeof config.timezone === 'string' ? config.timezone : 'UTC';
 }
 
-async function withErrors(program: Command, fn: () => Promise<void>): Promise<void> {
-  try {
-    await fn();
-  } catch (error) {
-    process.stderr.write(`${JSON.stringify(errorPayload(error), null, 2)}\n`);
-    process.exitCode = exitCodeFor(error);
-  }
+function addMailComposeOptions(command: Command): Command {
+  return command
+    .option('--to <email>', 'Recipient email; comma-separated values are accepted')
+    .option('--subject <subject>', 'Message subject')
+    .option('--body <text>', 'Plain-text body; use - to read stdin')
+    .option('--body-file <path>', 'Read plain-text body from file')
+    .option('--html [html]', 'HTML body; pass a value or use with --body to treat body as HTML')
+    .option('--html-file <path>', 'Read HTML body from file')
+    .option('--cc <email>', 'CC recipients; comma-separated values are accepted')
+    .option('--bcc <email>', 'BCC recipients; comma-separated values are accepted')
+    .option('--reply-to <email>', 'Reply-To address')
+    .option('--attachment <path>', 'Attach file; repeatable', collectValues, [])
+    .option('--template-id <id>', 'Stored template id')
+    .option('--template-data <json>', 'Template data JSON')
+    .option('--template-data-file <path>', 'Template data JSON file')
+    .option('--importance <level>', 'Importance: low, normal, high');
 }
 
-export function createProgram(): Command {
-  const authManager = new GoogleAuthManager();
-  const cache = new CacheManager();
+function addCalendarEventOptions(command: Command): Command {
+  return command
+    .option('--calendar <id>', 'Calendar ID', 'primary')
+    .option('--json <json>', 'Raw event JSON')
+    .option('--json-file <path>', 'Raw event JSON file')
+    .option('--summary <text>', 'Event summary')
+    .option('--description <text>', 'Event description')
+    .option('--location <text>', 'Event location')
+    .option('--start <datetime>', 'Start datetime')
+    .option('--end <datetime>', 'End datetime')
+    .option('--attendee <email>', 'Attendee; repeatable and comma-separated values are accepted', collectValues, [])
+    .option('--timezone <tz>', 'Event timezone')
+    .option('--meet', 'Add Google Meet conference')
+    .option('--send-notifications', 'Send attendee notifications');
+}
 
+export function createProgram(options: CreateProgramOptions = {}): Command {
+  const runtime = createCliRuntime(options);
   const program = new Command();
-  const cleanupAndExit = (signal: NodeJS.Signals) => {
-    authManager.cleanupAuthServers();
-    process.stderr.write(`Received ${signal}; closed pending OAuth listeners.\n`);
-    process.exit(130);
-  };
-  process.once('SIGINT', cleanupAndExit);
-  process.once('SIGTERM', cleanupAndExit);
+
+  if (options.installSignalHandlers !== false) installSignalHandlers(runtime);
 
   program
     .name('gws')
     .description('CLI-first Google Workspace tool with MCP compatibility')
+    .version(runtime.version)
     .option('-a, --account <email>', 'Google account email')
     .option('-f, --format <format>', 'Output format: json, table, jsonl, tsv, yaml', 'json')
     .option('-q, --quiet', 'Suppress non-data output')
@@ -60,81 +89,179 @@ export function createProgram(): Command {
     .description('Start OAuth login for an account')
     .requiredOption('-a, --account <email>', 'Account email')
     .option('-t, --type <type>', 'Account type: personal or workspace', 'workspace')
-    .action((opts) => withErrors(program, async () => {
-      await authManager.initialize();
-      const url = await authManager.authenticate(opts.account, opts.type);
-      if (url) emit(program, { account: opts.account, status: 'pending', authUrl: url });
-      else emit(program, { account: opts.account, status: 'already_authenticated' });
+    .action((opts) => runAction(program, runtime, async () => {
+      await runtime.authManager.initialize();
+      const accountType = parseEnumValue(opts.type, ['personal', 'workspace'] as const, 'account type');
+      const url = await runtime.authManager.authenticate(opts.account, accountType);
+      return url ? { account: opts.account, status: 'pending', authUrl: url } : { account: opts.account, status: 'already_authenticated' };
     }));
-  auth.command('list').description('List authenticated accounts').action(() => withErrors(program, async () => {
-    emit(program, { accounts: await authManager.listAccounts(), current: (await loadState()).current });
+  auth.command('list').description('List authenticated accounts').action(() => runAction(program, runtime, async () => ({
+    accounts: await runtime.authManager.listAccounts(),
+    current: (await runtime.loadState()).current,
+  })));
+  auth.command('current').description('Show current account').action(() => runAction(program, runtime, async () => ({
+    account: await currentAccount(program, runtime),
+  })));
+  auth.command('whoami').description('Alias for auth current').action(() => runAction(program, runtime, async () => ({
+    account: await currentAccount(program, runtime),
+  })));
+  auth.command('switch').description('Set default account').argument('<email>').action((email) => runAction(program, runtime, async () => {
+    await requireKnownAccount(runtime.authManager, email);
+    await switchCurrentAccount(email, runtime.loadState, runtime.saveState);
+    return { current: email };
   }));
-  auth.command('current').description('Show current account').action(() => withErrors(program, async () => {
-    const account = await resolveAccount(authManager, program.optsWithGlobals().account);
-    emit(program, { account });
-  }));
-  auth.command('whoami').description('Alias for auth current').action(() => withErrors(program, async () => {
-    const account = await resolveAccount(authManager, program.optsWithGlobals().account);
-    emit(program, { account });
-  }));
-  auth.command('switch').description('Set default account').argument('<email>').action((email) => withErrors(program, async () => {
-    await requireKnownAccount(authManager, email);
-    await switchCurrentAccount(email);
-    emit(program, { current: email });
-  }));
-  auth.command('logout').description('Remove local account token').argument('<email>').action((email) => withErrors(program, async () => {
-    await authManager.removeAccount(email);
-    const state = await loadState();
-    if (state.current === email) await saveState({});
-    emit(program, { removed: email });
+  auth.command('logout').description('Remove local account token').argument('<email>').action((email) => runAction(program, runtime, async () => {
+    await runtime.authManager.removeAccount(email);
+    const state = await runtime.loadState();
+    if (state.current === email) await runtime.saveState({});
+    return { removed: email };
   }));
 
   const config = program.command('config').description('Manage gws CLI config');
-  config.command('path').description('Show config/state paths').action(() => withErrors(program, async () => {
-    emit(program, { configPath: configPath(), statePath: statePath() });
+  config.command('path').description('Show config/state paths').action(() => runAction(program, runtime, async () => ({
+    configPath: runtime.configPath(),
+    statePath: runtime.statePath(),
+  })));
+  config.command('list').description('List config values').action(() => runAction(program, runtime, () => runtime.loadConfig()));
+  config.command('get').argument('<key>').description('Get a config value').action((key) => runAction(program, runtime, async () => {
+    const cfg = await runtime.loadConfig();
+    return { [key]: cfg[key] ?? null };
   }));
-  config.command('list').description('List config values').action(() => withErrors(program, async () => emit(program, await loadConfig())));
-  config.command('get').argument('<key>').description('Get a config value').action((key) => withErrors(program, async () => {
-    const cfg = await loadConfig();
-    emit(program, { [key]: cfg[key] ?? null });
-  }));
-  config.command('set').argument('<key>').argument('<value>').description('Set a config value').action((key, value) => withErrors(program, async () => {
-    const cfg = await loadConfig();
+  config.command('set').argument('<key>').argument('<value>').description('Set a config value').action((key, value) => runAction(program, runtime, async () => {
+    const cfg = await runtime.loadConfig();
     cfg[key] = value;
-    await saveConfig(cfg);
-    emit(program, { [key]: value });
+    await runtime.saveConfig(cfg);
+    return { [key]: value };
   }));
 
   const mail = program.command('mail').description('Gmail commands');
+  mail.command('profile').description('Show Gmail profile for account').action(() => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, profile: await (await runtime.services.gmail(account)).getAccountInfo() };
+  }));
   mail.command('list')
     .option('--query <query>')
-    .option('--label <labelId>', 'Filter by label id', collect, [])
+    .option('--label <labelId>', 'Filter by label id', collectValues, [])
     .option('--limit <n>', 'Maximum results', '50')
     .option('--page-token <token>')
     .option('--include-spam-trash')
-    .action((opts) => withErrors(program, async () => {
-      const email = await resolveAccount(authManager, program.optsWithGlobals().account);
-      const gmail = await gmailFor(authManager, cache, email);
-      const result = await gmail.listEmails({ maxResults: Number(opts.limit), pageToken: opts.pageToken, query: opts.query, labelIds: opts.label, includeSpamTrash: Boolean(opts.includeSpamTrash) });
-      emit(program, { account: email, items: result.emails, nextPageToken: result.nextPageToken });
+    .action((opts) => runAction(program, runtime, async () => {
+      const account = await currentAccount(program, runtime);
+      const result = await (await runtime.services.gmail(account)).listEmails({
+        maxResults: parsePositiveInteger(opts.limit, 'limit'),
+        pageToken: opts.pageToken,
+        query: opts.query,
+        labelIds: opts.label,
+        includeSpamTrash: Boolean(opts.includeSpamTrash),
+      });
+      return { account, items: result.emails, nextPageToken: result.nextPageToken };
     }));
-  mail.command('search').argument('<query>').option('--limit <n>', 'Maximum results', '50').action((query, opts) => withErrors(program, async () => {
-    const email = await resolveAccount(authManager, program.optsWithGlobals().account);
-    const gmail = await gmailFor(authManager, cache, email);
-    emit(program, { account: email, items: await gmail.searchEmails(query, Number(opts.limit)) });
+  mail.command('search').argument('<query>').option('--limit <n>', 'Maximum results', '50').action((query, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, items: await (await runtime.services.gmail(account)).searchEmails(query, parsePositiveInteger(opts.limit, 'limit')) };
   }));
-  mail.command('read').argument('<messageId>').action((messageId) => withErrors(program, async () => {
-    const email = await resolveAccount(authManager, program.optsWithGlobals().account);
-    const gmail = await gmailFor(authManager, cache, email);
-    emit(program, await gmail.getEmailById(messageId));
+  mail.command('read').argument('<messageId>').action((messageId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return await (await runtime.services.gmail(account)).getEmailById(messageId);
+  }));
+  addMailComposeOptions(mail.command('send').description('Send an email')).action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) {
+      return { account, dryRun: true, would: { action: 'mail.send', payload: await buildMailPayloadPreview(opts, runtime.readStdin) } };
+    }
+    const messageId = await (await runtime.services.gmail(account)).sendEmail(await buildMailPayload(opts, runtime.readStdin));
+    return { account, messageId };
+  }));
+  addMailComposeOptions(mail.command('reply').description('Reply to a message').argument('<messageId>')).action((messageId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const payload = await buildMailPayload(opts, runtime.readStdin);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.reply', messageId, payload } };
+    return { account, messageId: await (await runtime.services.gmail(account)).replyToEmail(messageId, payload) };
+  }));
+  addMailComposeOptions(mail.command('forward').description('Forward a message').argument('<messageId>')).action((messageId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const payload = await buildMailPayload(opts, runtime.readStdin);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.forward', messageId, payload } };
+    return { account, messageId: await (await runtime.services.gmail(account)).forwardEmail(messageId, payload) };
+  }));
+  mail.command('delete').argument('<messageId>').action((messageId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.delete', messageId } };
+    await (await runtime.services.gmail(account)).deleteEmail(messageId);
+    return { account, deleted: messageId };
+  }));
+  mail.command('read-status').description('Mark message as read/unread').argument('<messageId>').requiredOption('--status <status>', 'read or unread').action((messageId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const gmail = await runtime.services.gmail(account);
+    const status = parseEnumValue(opts.status, ['read', 'unread'] as const, 'status');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: `mail.mark-${status}`, messageId, status } };
+    if (status === 'read') await gmail.markAsRead(messageId);
+    else await gmail.markAsUnread(messageId);
+    return { account, messageId, status };
+  }));
+  mail.command('mark-read').description('Mark message as read').argument('<messageId>').action((messageId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.mark-read', messageId, status: 'read' } };
+    await (await runtime.services.gmail(account)).markAsRead(messageId);
+    return { account, messageId, status: 'read' };
+  }));
+  mail.command('mark-unread').description('Mark message as unread').argument('<messageId>').action((messageId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.mark-unread', messageId, status: 'unread' } };
+    await (await runtime.services.gmail(account)).markAsUnread(messageId);
+    return { account, messageId, status: 'unread' };
   }));
 
-  const cal = program.command('cal').description('Google Calendar commands');
-  cal.command('calendars').description('List calendars').action(() => withErrors(program, async () => {
-    const email = await resolveAccount(authManager, program.optsWithGlobals().account);
-    const calendar = await calendarFor(authManager, cache, email);
-    emit(program, { account: email, items: await calendar.listCalendars() });
+  const labels = mail.command('labels').description('Manage Gmail labels');
+  labels.action(() => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, items: await (await runtime.services.gmail(account)).listLabels() };
   }));
+  labels.command('create').argument('<name>').option('--background-color <color>').option('--text-color <color>').action((name, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const labelId = await (await runtime.services.gmail(account)).createLabel(name, { backgroundColor: opts.backgroundColor, textColor: opts.textColor });
+    return { account, labelId, name };
+  }));
+  labels.command('add').argument('<messageId>').argument('<labelId>').action((messageId, labelId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    await (await runtime.services.gmail(account)).addLabel(messageId, labelId);
+    return { account, messageId, labelId, added: true };
+  }));
+  labels.command('remove').argument('<messageId>').argument('<labelId>').action((messageId, labelId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    await (await runtime.services.gmail(account)).removeLabel(messageId, labelId);
+    return { account, messageId, labelId, removed: true };
+  }));
+  const attachmentListAction = (messageId: string) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, messageId, items: await (await runtime.services.gmail(account)).listAttachments(messageId) };
+  });
+  const attachmentDownloadAction = (messageId: string, attachmentId: string, opts: { output: string }) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.attachments.download', messageId, attachmentId, output: opts.output } };
+    return { account, ...(await (await runtime.services.gmail(account)).downloadAttachment(messageId, attachmentId, opts.output)) };
+  });
+  const attachments = mail.command('attachments').alias('attachment').description('Attachment subcommands');
+  attachments.command('list').argument('<messageId>').action(attachmentListAction);
+  attachments.command('download').argument('<messageId>').argument('<attachmentId>').requiredOption('--output <path>').action(attachmentDownloadAction);
+  mail.command('attachments-list').description('Legacy alias: list message attachments').argument('<messageId>').action(attachmentListAction);
+  mail.command('attachment-download').description('Legacy alias: download a message attachment').argument('<messageId>').argument('<attachmentId>').requiredOption('--output <path>').action(attachmentDownloadAction);
+
+  const cal = program.command('cal').alias('calendar').description('Google Calendar commands');
+  cal.command('calendars').description('List calendars').action(() => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, items: await (await runtime.services.calendar(account)).listCalendars() };
+  }));
+  cal.command('freebusy')
+    .requiredOption('--from <timeMin>')
+    .requiredOption('--to <timeMax>')
+    .option('--calendar <id>', 'Calendar ID; repeatable', collectValues, [])
+    .option('--timezone <tz>')
+    .action((opts) => runAction(program, runtime, async () => {
+      const account = await currentAccount(program, runtime);
+      const query = buildFreeBusyPayload(opts.from, opts.to, opts.calendar, await defaultTimezone(runtime, opts.timezone));
+      return { account, freeBusy: await (await runtime.services.calendar(account)).getFreeBusy(query) };
+    }));
   const events = cal.command('events').description('Calendar event commands');
   events.command('list')
     .option('--calendar <id>', 'Calendar ID', 'primary')
@@ -142,16 +269,140 @@ export function createProgram(): Command {
     .option('--to <timeMax>')
     .option('--limit <n>', 'Maximum results', '100')
     .option('--query <query>')
-    .action((opts) => withErrors(program, async () => {
-      const email = await resolveAccount(authManager, program.optsWithGlobals().account);
-      const calendar = await calendarFor(authManager, cache, email);
-      emit(program, { account: email, items: await calendar.listEvents({ calendarId: opts.calendar, timeMin: opts.from, timeMax: opts.to, maxResults: Number(opts.limit), q: opts.query }) });
+    .action((opts) => runAction(program, runtime, async () => {
+      const account = await currentAccount(program, runtime);
+      return { account, items: await (await runtime.services.calendar(account)).listEvents({ calendarId: opts.calendar, timeMin: opts.from, timeMax: opts.to, maxResults: parsePositiveInteger(opts.limit, 'limit'), q: opts.query }) };
     }));
-  events.command('upcoming').option('--calendar <id>', 'Calendar ID', 'primary').option('--limit <n>', 'Maximum results', '10').option('--days <n>', 'Days ahead', '7').action((opts) => withErrors(program, async () => {
-    const email = await resolveAccount(authManager, program.optsWithGlobals().account);
-    const calendar = await calendarFor(authManager, cache, email);
-    emit(program, { account: email, items: await calendar.getUpcomingEvents({ calendarId: opts.calendar, maxResults: Number(opts.limit), daysAhead: Number(opts.days) }) });
+  events.command('upcoming').option('--calendar <id>', 'Calendar ID', 'primary').option('--limit <n>', 'Maximum results', '10').option('--days <n>', 'Days ahead', '7').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, items: await (await runtime.services.calendar(account)).getUpcomingEvents({ calendarId: opts.calendar, maxResults: parsePositiveInteger(opts.limit, 'limit'), daysAhead: parsePositiveInteger(opts.days, 'days') }) };
   }));
+  events.command('search').argument('<query>').option('--calendar <id>', 'Calendar ID', 'primary').option('--limit <n>', 'Maximum results', '50').action((query, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, items: await (await runtime.services.calendar(account)).searchEvents(query, { calendarId: opts.calendar, maxResults: parsePositiveInteger(opts.limit, 'limit') }) };
+  }));
+  events.command('get').argument('<eventId>').option('--calendar <id>', 'Calendar ID', 'primary').action((eventId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return await (await runtime.services.calendar(account)).getEvent(opts.calendar, eventId);
+  }));
+  addCalendarEventOptions(events.command('create').description('Create calendar event')).action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const payload = await buildCalendarEventPayload(opts, await defaultTimezone(runtime, opts.timezone), runtime.readStdin);
+    ensureCreatableEvent(payload);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.events.create', calendarId: opts.calendar, payload } };
+    const conferenceData = materializeConferenceRequest(payload.conferenceData, runtime.now);
+    const event = conferenceData ? { ...payload, conferenceData } : payload;
+    return { account, event: await (await runtime.services.calendar(account)).createEvent(event, opts.calendar, Boolean(opts.sendNotifications)) };
+  }));
+  addCalendarEventOptions(events.command('update').description('Update calendar event').argument('<eventId>')).action((eventId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const payload = await buildCalendarEventPayload(opts, await defaultTimezone(runtime, opts.timezone), runtime.readStdin) as Partial<CalendarEvent>;
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.events.update', calendarId: opts.calendar, eventId, payload } };
+    return { account, event: await (await runtime.services.calendar(account)).updateEvent(opts.calendar, eventId, payload, Boolean(opts.sendNotifications)) };
+  }));
+  events.command('delete').argument('<eventId>').option('--calendar <id>', 'Calendar ID', 'primary').option('--send-notifications').action((eventId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.events.delete', calendarId: opts.calendar, eventId } };
+    await (await runtime.services.calendar(account)).deleteEvent(opts.calendar, eventId, Boolean(opts.sendNotifications));
+    return { account, deleted: eventId };
+  }));
+  events.command('quickadd').argument('<text>').option('--calendar <id>', 'Calendar ID', 'primary').action((text, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.events.quickadd', calendarId: opts.calendar, text } };
+    return { account, event: await (await runtime.services.calendar(account)).quickAddEvent(opts.calendar, text) };
+  }));
+  events.command('respond').argument('<eventId>').requiredOption('--response <response>', 'accepted, declined, tentative, needsAction').option('--calendar <id>', 'Calendar ID', 'primary').option('--comment <text>').action((eventId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const response = parseEnumValue(opts.response, ['accepted', 'declined', 'tentative', 'needsAction'] as const, 'response');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.events.respond', calendarId: opts.calendar, eventId, response, comment: opts.comment } };
+    return { account, event: await (await runtime.services.calendar(account)).respondToInvitation(opts.calendar, eventId, response, opts.comment) };
+  }));
+  events.command('conference').description('Add Google Meet conference to an event').argument('<eventId>').option('--calendar <id>', 'Calendar ID', 'primary').option('--type <type>', 'hangoutsMeet or addOn', 'hangoutsMeet').action((eventId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const type = parseEnumValue(opts.type, ['hangoutsMeet', 'addOn'] as const, 'conference type');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.events.conference', calendarId: opts.calendar, eventId, type } };
+    return { account, event: await (await runtime.services.calendar(account)).addConferenceToEvent(opts.calendar, eventId, type) };
+  }));
+
+  const drive = program.command('drive').description('Google Drive commands');
+  drive.command('list').option('--query <query>').option('--limit <n>', 'Maximum results', '50').option('--page-token <token>').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, items: await (await runtime.services.drive(account)).listFiles({ query: opts.query, pageSize: parsePositiveInteger(opts.limit, 'limit'), pageToken: opts.pageToken }) };
+  }));
+  drive.command('get').argument('<fileId>').action((fileId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return await (await runtime.services.drive(account)).getFile(fileId);
+  }));
+  drive.command('upload').requiredOption('--path <path>').option('--name <name>').option('--mime-type <type>').option('--parent <id>', 'Parent folder id; repeatable', collectValues, []).action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const payload = { path: opts.path, name: opts.name, mimeType: opts.mimeType, parents: opts.parent?.length ? opts.parent : undefined };
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.upload', payload } };
+    return { account, file: await (await runtime.services.drive(account)).uploadFile(payload) };
+  }));
+  drive.command('download').argument('<fileId>').requiredOption('--output <path>').action((fileId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, ...(await (await runtime.services.drive(account)).downloadFile(fileId, opts.output)) };
+  }));
+  drive.command('mkdir').argument('<name>').option('--parent <id>').action((name, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.mkdir', name, parent: opts.parent } };
+    return { account, folder: await (await runtime.services.drive(account)).createFolder(name, opts.parent) };
+  }));
+  drive.command('share').argument('<fileId>').requiredOption('--role <role>').option('--email <email>').option('--type <type>', 'user, group, domain, anyone', 'user').action((fileId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const role = parseEnumValue(opts.role, ['reader', 'commenter', 'writer'] as const, 'role');
+    const type = parseEnumValue(opts.type, ['user', 'group', 'domain', 'anyone'] as const, 'type');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.share', fileId, role, email: opts.email, type } };
+    return { account, permission: await (await runtime.services.drive(account)).shareFile(fileId, role, opts.email, type) };
+  }));
+
+  const docs = program.command('docs').description('Google Docs commands');
+  docs.command('get').argument('<documentId>').action((documentId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return await (await runtime.services.docs(account)).getDocument(documentId);
+  }));
+  docs.command('create').requiredOption('--title <title>').option('--content <text>').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const payload = buildDocsCreatePayload(opts.title, opts.content);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'docs.create', payload } };
+    return { account, document: await (await runtime.services.docs(account)).createDocument(payload.title, payload.content) };
+  }));
+  docs.command('export').argument('<documentId>').requiredOption('--output <path>').option('--mime-type <type>', 'Export MIME type or alias', 'pdf').action((documentId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, ...(await (await runtime.services.docs(account)).exportDocument(documentId, normalizeDocsExportMimeType(opts.mimeType), opts.output)) };
+  }));
+
+  const sheets = program.command('sheets').description('Google Sheets commands');
+  sheets.command('get').argument('<spreadsheetId>').action((spreadsheetId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return await (await runtime.services.sheets(account)).getSpreadsheet(spreadsheetId);
+  }));
+  sheets.command('values').argument('<spreadsheetId>').requiredOption('--range <range>').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, values: await (await runtime.services.sheets(account)).getValues(spreadsheetId, opts.range) };
+  }));
+  sheets.command('update').argument('<spreadsheetId>').requiredOption('--range <range>').requiredOption('--values <json>').option('--value-input-option <mode>', 'RAW or USER_ENTERED', 'RAW').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const valueInputOption = parseEnumValue(opts.valueInputOption, ['RAW', 'USER_ENTERED'] as const, 'value input option');
+    const payload = buildSheetsValuesPayload(JSON.parse(opts.values), valueInputOption);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.update', spreadsheetId, range: opts.range, payload } };
+    return { account, result: await (await runtime.services.sheets(account)).updateValues(spreadsheetId, opts.range, payload.values, payload.valueInputOption) };
+  }));
+  sheets.command('append').argument('<spreadsheetId>').requiredOption('--range <range>').requiredOption('--values <json>').option('--value-input-option <mode>', 'RAW or USER_ENTERED', 'RAW').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const valueInputOption = parseEnumValue(opts.valueInputOption, ['RAW', 'USER_ENTERED'] as const, 'value input option');
+    const payload = buildSheetsValuesPayload(JSON.parse(opts.values), valueInputOption);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.append', spreadsheetId, range: opts.range, payload } };
+    return { account, result: await (await runtime.services.sheets(account)).appendValues(spreadsheetId, opts.range, payload.values, payload.valueInputOption) };
+  }));
+
+  program.command('doctor').description('Check local gws configuration').action(() => runAction(program, runtime, async () => ({
+    version: runtime.version,
+    configPath: runtime.configPath(),
+    statePath: runtime.statePath(),
+    accounts: await runtime.authManager.listAccounts(),
+    current: (await runtime.loadState()).current ?? null,
+  })));
 
   return program;
 }

@@ -522,6 +522,27 @@ export class GmailService {
     }
   }
 
+  async listAttachments(messageId: string): Promise<AttachmentInfo[]> {
+    const email = await this.getEmailById(messageId);
+    return email.attachments || [];
+  }
+
+  async downloadAttachment(
+    messageId: string,
+    attachmentId: string,
+    savePath: string,
+  ): Promise<{ path: string; filename?: string; size: number }> {
+    const attachment = await this.getAttachment(messageId, attachmentId);
+    const attachmentInfo = await this.getAttachmentInfo(messageId, attachmentId);
+    const resolvedPath = await this.resolveAttachmentSavePath(savePath, attachmentInfo?.filename);
+    await fs.writeFile(resolvedPath, attachment);
+    return {
+      path: resolvedPath,
+      filename: attachmentInfo?.filename,
+      size: attachment.length,
+    };
+  }
+
   // Handler methods for MCP tools
   async handleListEmails(args: any): Promise<{ content: Array<TextContent> }> {
     const emails = await this.listEmails(args);
@@ -701,30 +722,27 @@ export class GmailService {
   }
 
   async handleListAttachments(args: any): Promise<{ content: Array<TextContent> }> {
-    const email = await this.getEmailById(args.messageId);
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify(email.attachments || [], null, 2),
+        text: JSON.stringify(await this.listAttachments(args.messageId), null, 2),
       }],
     };
   }
 
   async handleDownloadAttachment(args: any): Promise<{ content: Array<TextContent | ImageContent> }> {
-    const attachment = await this.getAttachment(args.messageId, args.attachmentId);
-    const attachmentInfo = await this.getAttachmentInfo(args.messageId, args.attachmentId);
-    
-    // Save to sandbox if filename hint provided
     if (args.savePath) {
-      const resolvedPath = await this.resolveAttachmentSavePath(args.savePath, attachmentInfo?.filename);
-      await fs.writeFile(resolvedPath, attachment);
+      const downloaded = await this.downloadAttachment(args.messageId, args.attachmentId, args.savePath);
       return {
         content: [{
           type: 'text',
-          text: `Attachment saved to sandbox path: ${resolvedPath}`,
+          text: `Attachment saved to sandbox path: ${downloaded.path}`,
         }],
       };
     }
+
+    const attachment = await this.getAttachment(args.messageId, args.attachmentId);
+    const attachmentInfo = await this.getAttachmentInfo(args.messageId, args.attachmentId);
     
     // Return base64 encoded content
     return {
