@@ -549,12 +549,17 @@ class GmailCalendarMCPServer {
       // Validate environment
       validateEnvironment();
 
-      // Initialize auth manager
-      await this.authManager.initialize();
-
       // Start the server
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
+
+      // Initialize auth after stdio is connected so schema discovery works
+      // even before local Google credentials are configured.
+      try {
+        await this.authManager.initialize();
+      } catch (error) {
+        this.logger.warn('Google auth is not initialized; auth-backed tool calls will fail until configured.', error);
+      }
 
       this.logger.info('Gmail Calendar MCP Server started successfully');
     } catch (error) {
