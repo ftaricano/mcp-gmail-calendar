@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import mime from 'mime-types';
 import { Logger } from './Logger.js';
-import { validateAttachmentSize, validateAttachmentType, sanitizeFilename } from './Validator.js';
+import { validateAttachmentSize, validateAttachmentType, sanitizeFilename, isSafeFetchUrl } from './Validator.js';
 
 export interface Attachment {
   filename: string;
@@ -274,6 +274,11 @@ export class AttachmentHandler {
     contentType?: string
   ): Promise<AttachmentMetadata> {
     try {
+      // SSRF guard: reject loopback/private/link-local targets before fetching.
+      if (!isSafeFetchUrl(url)) {
+        throw new Error(`Unsafe URL not allowed: ${url}`);
+      }
+
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to download from URL: ${response.status}`);

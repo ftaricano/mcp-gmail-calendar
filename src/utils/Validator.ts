@@ -193,6 +193,78 @@ export function isValidUrl(url: string): boolean {
   return z.string().url().safeParse(url).success;
 }
 
+// SSRF protection: only allow http(s) requests to public hosts. Rejects
+// loopback, private, link-local and IPv4-mapped IPv6 ranges so that
+// attacker-controlled URLs (e.g. an email link) cannot reach internal
+// services such as 127.0.0.1:3000/oauth2callback or cloud metadata.
+function isBlockedIpv4(host: string): boolean {
+  const octets = host.split('.');
+  if (octets.length !== 4) return false;
+
+  const parts = octets.map(o => Number(o));
+  if (parts.some(p => !Number.isInteger(p) || p < 0 || p > 255)) return false;
+
+  const [a, b] = parts;
+
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 127) return true; // loopback 127.0.0.0/8
+  if (a === 10) return true; // private 10.0.0.0/8
+  if (a === 172 && b >= 16 && b <= 31) return true; // private 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // private 192.168.0.0/16
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata 169.254.0.0/16
+
+  return false;
+}
+
+export function isSafeFetchUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return false;
+  }
+
+  // URL hostnames keep IPv6 in brackets; strip them for inspection.
+  let host = parsed.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
+
+  if (host === '' || host === 'localhost' || host.endsWith('.localhost')) {
+    return false;
+  }
+
+  // IPv6 loopback and IPv4-mapped IPv6 forms (e.g. ::1, ::ffff:127.0.0.1).
+  // The WHATWG URL parser normalizes embedded IPv4 to hex (::ffff:7f00:1),
+  // so handle both the dotted and the hex representations.
+  if (host.includes(':')) {
+    if (host === '::1' || host === '::') return false; // loopback / unspecified
+
+    const dotted = host.match(/::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+    if (dotted && isBlockedIpv4(dotted[1])) return false;
+
+    const hexMapped = host.match(/::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      if (isBlockedIpv4(ipv4)) return false;
+    }
+
+    return true;
+  }
+
+  if (isBlockedIpv4(host)) {
+    return false;
+  }
+
+  return true;
+}
+
 export function sanitizeFilename(filename: string): string {
   // Remove or replace dangerous characters
   return filename
