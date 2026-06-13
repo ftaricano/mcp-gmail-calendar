@@ -228,8 +228,11 @@ export class GoogleAuthManager {
         }
       });
 
-      server.listen(port, () => {
-        this.logger.info(`Auth server listening on port ${port} for ${email}`);
+      // Bind to loopback only. Without an explicit host the listener defaults
+      // to all interfaces (0.0.0.0/::), exposing the OAuth callback to the local
+      // network and allowing an attacker to forge callbacks and intercept tokens.
+      server.listen(port, '127.0.0.1', () => {
+        this.logger.info(`Auth server listening on 127.0.0.1:${port} for ${email}`);
         this.authServers.set(state, server);
         resolve();
       });
