@@ -79,6 +79,7 @@ export class Logger {
 
     const transports: winston.transport[] = [
       new winston.transports.Console({
+        stderrLevels: ['error', 'warn', 'info', 'debug'],
         format: winston.format.combine(
           winston.format.colorize(),
           winston.format.timestamp(),
@@ -112,6 +113,7 @@ export class Logger {
       transports,
       exceptionHandlers: [
         new winston.transports.Console({
+          stderrLevels: ['error', 'warn', 'info', 'debug'],
           format: winston.format.combine(
             winston.format.colorize(),
             winston.format.timestamp(),
@@ -121,6 +123,7 @@ export class Logger {
       ],
       rejectionHandlers: [
         new winston.transports.Console({
+          stderrLevels: ['error', 'warn', 'info', 'debug'],
           format: winston.format.combine(
             winston.format.colorize(),
             winston.format.timestamp(),

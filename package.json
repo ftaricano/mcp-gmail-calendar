@@ -1,20 +1,22 @@
 {
   "name": "@mcp/gmail-calendar",
   "version": "1.0.0",
-  "description": "MCP server for Gmail and Google Calendar workflows with multi-account OAuth support.",
+  "description": "CLI-first Google Workspace tool with MCP compatibility for Gmail and Calendar workflows.",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test $(find tests -name '*.test.ts')",
     "lint": "eslint .",
     "format": "prettier --write src/**/*.ts",
     "setup": "node -e \"console.log('Manual setup only: copy .env.example to .env and follow README.md')\"",
     "google-setup": "node -e \"console.log('Manual Google setup only: configure OAuth credentials as documented in README.md')\"",
     "clean": "rm -rf dist/ logs/ tokens/ attachments/",
-    "postinstall": "npm run build"
+    "cli": "tsx src/cli/index.ts",
+    "dev:cli": "tsx watch src/cli/index.ts",
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
     "mcp",
@@ -22,12 +24,16 @@
     "google-calendar",
     "email",
     "calendar",
-    "google-workspace"
+    "google-workspace",
+    "cli",
+    "gws"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^12.1.0",
     "dayjs": "^1.11.13",
     "dotenv": "^16.4.7",
     "google-auth-library": "^10.6.2",
@@ -60,5 +66,15 @@
     "ts-jest": "^29.2.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
-  }
+  },
+  "bin": {
+    "gws": "./bin/gws.js",
+    "gws-mcp": "./bin/gws-mcp.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "SECURITY.md"
+  ]
 }
