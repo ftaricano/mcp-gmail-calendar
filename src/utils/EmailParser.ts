@@ -10,7 +10,8 @@ export class EmailParser {
 
   constructor() {
     this.logger = new Logger('EmailParser');
-    this.enableHtmlSanitization = process.env.ENABLE_HTML_SANITIZATION === 'true';
+    // Secure-by-default: sanitize unless explicitly disabled (ENABLE_HTML_SANITIZATION="false").
+    this.enableHtmlSanitization = process.env.ENABLE_HTML_SANITIZATION !== 'false';
   }
 
   parseGmailMessage(message: gmail_v1.Schema$Message): EmailMessage {
