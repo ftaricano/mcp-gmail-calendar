@@ -237,8 +237,9 @@ export class GoogleAuthManager {
         resolve();
       });
 
-      // Auto-close server after 5 minutes
-      setTimeout(() => {
+      // Auto-close server after 5 minutes. unref() so this cleanup timer never
+      // keeps the host process (or the test runner) alive on its own.
+      const autoCloseTimer = setTimeout(() => {
         if (this.authServers.has(state)) {
           server.close();
           this.authServers.delete(state);
@@ -246,6 +247,7 @@ export class GoogleAuthManager {
           this.logger.info(`Auth server timeout for ${email}`);
         }
       }, 5 * 60 * 1000);
+      autoCloseTimer.unref();
     });
   }
 
