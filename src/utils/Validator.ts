@@ -236,7 +236,8 @@ export function isValidTimeZone(timeZone: string): boolean {
 
 // Security validation
 export function validateHtmlContent(html: string): boolean {
-  const enableSanitization = process.env.ENABLE_HTML_SANITIZATION === 'true';
+  // Secure-by-default: enforce checks unless explicitly disabled (ENABLE_HTML_SANITIZATION="false").
+  const enableSanitization = process.env.ENABLE_HTML_SANITIZATION !== 'false';
   if (!enableSanitization) return true;
   
   // Basic checks for potentially dangerous content
