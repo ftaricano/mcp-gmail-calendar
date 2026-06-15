@@ -993,11 +993,93 @@ export const respondToInvitationTool: Tool = {
       },
       response: {
         type: 'string',
-        enum: ['accepted', 'declined', 'tentative'],
+        enum: ['accepted', 'declined', 'tentative', 'needsAction'],
         description: 'Response to the invitation',
+      },
+      comment: {
+        type: 'string',
+        description: 'Optional response comment',
       },
     },
     required: ['eventId', 'response'],
+  },
+};
+
+export const getEventInstancesTool: Tool = {
+  name: 'event_instances',
+  description: 'List the individual instances (occurrences) of a recurring calendar event. Read-only. Use the returned instance id with event_update/event_delete to edit or remove a single occurrence.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      calendarId: {
+        type: 'string',
+        default: 'primary',
+        description: 'Calendar ID',
+      },
+      eventId: {
+        type: 'string',
+        description: 'Recurring event ID',
+      },
+      timeMin: {
+        type: 'string',
+        format: 'date-time',
+        description: 'Lower bound for instances (RFC3339 timestamp)',
+      },
+      timeMax: {
+        type: 'string',
+        format: 'date-time',
+        description: 'Upper bound for instances (RFC3339 timestamp)',
+      },
+      maxResults: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 2500,
+        description: 'Maximum number of instances to return',
+      },
+      pageToken: {
+        type: 'string',
+        description: 'Token for pagination',
+      },
+    },
+    required: ['eventId'],
+  },
+};
+
+export const createCalendarTool: Tool = {
+  name: 'calendar_create',
+  description: 'Create a new secondary calendar',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      summary: {
+        type: 'string',
+        description: 'Calendar title',
+      },
+      description: {
+        type: 'string',
+        description: 'Calendar description',
+      },
+      timeZone: {
+        type: 'string',
+        description: 'Calendar time zone (IANA, e.g. America/Sao_Paulo)',
+      },
+    },
+    required: ['summary'],
+  },
+};
+
+export const deleteCalendarTool: Tool = {
+  name: 'calendar_delete',
+  description: 'Delete a secondary calendar. Destructive: removes the calendar and all its events.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      calendarId: {
+        type: 'string',
+        description: 'Calendar ID to delete',
+      },
+    },
+    required: ['calendarId'],
   },
 };
 

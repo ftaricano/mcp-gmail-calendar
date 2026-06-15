@@ -96,6 +96,13 @@ export interface CalendarServiceLike {
     eventId: string,
     conferenceType: 'hangoutsMeet' | 'addOn',
   ): Promise<CalendarEvent>;
+  getEventInstances(
+    calendarId: string,
+    eventId: string,
+    opts?: { timeMin?: string; timeMax?: string; maxResults?: number; pageToken?: string },
+  ): Promise<CalendarEvent[]>;
+  createCalendar(summary: string, opts?: { description?: string; timeZone?: string }): Promise<unknown>;
+  deleteCalendar(calendarId: string): Promise<void>;
 }
 
 export interface DriveServiceLike {

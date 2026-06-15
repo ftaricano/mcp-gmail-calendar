@@ -134,6 +134,9 @@ class GmailCalendarMCPServer {
       tools.searchEventsTool,
       tools.quickAddEventTool,
       tools.getUpcomingEventsTool,
+      tools.getEventInstancesTool,
+      tools.createCalendarTool,
+      tools.deleteCalendarTool,
 
       // Template Tools
       tools.listEmailTemplatesTool,
@@ -545,7 +548,17 @@ class GmailCalendarMCPServer {
       case 'event_upcoming':
       case 'calendar_upcoming_events':
         return await this.calendarService!.handleGetUpcomingEvents(args);
-      
+
+      case 'event_instances':
+      case 'calendar_event_instances':
+        return await this.calendarService!.handleGetEventInstances(args);
+
+      case 'calendar_create':
+        return await this.calendarService!.handleCreateCalendar(args);
+
+      case 'calendar_delete':
+        return await this.calendarService!.handleDeleteCalendar(args);
+
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Unknown calendar tool: ${name}`);
     }

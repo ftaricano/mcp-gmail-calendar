@@ -1,5 +1,6 @@
 import { calendar_v3, google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { z } from 'zod';
 import { TextContent, McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { Logger } from '../utils/Logger.js';
 import { CacheManager } from '../utils/CacheManager.js';
@@ -31,6 +32,7 @@ export interface CalendarEvent {
     responseStatus?: 'needsAction' | 'declined' | 'tentative' | 'accepted';
     optional?: boolean;
     organizer?: boolean;
+    self?: boolean;
   }>;
   reminders?: {
     useDefault?: boolean;
@@ -69,15 +71,22 @@ export interface FreeBusyQuery {
   items: Array<{ id: string }>;
 }
 
+type CalendarApiLike = Pick<calendar_v3.Calendar, 'events' | 'calendarList' | 'calendars' | 'freebusy'>;
+
 export class CalendarService {
-  private calendar: calendar_v3.Calendar;
+  private calendar: CalendarApiLike;
   private logger: Logger;
   private cache: CacheManager;
   private defaultTimeZone: string;
   private accountEmail: string;
 
-  constructor(auth: OAuth2Client, cache: CacheManager, accountEmail: string) {
-    this.calendar = google.calendar({ version: 'v3', auth });
+  constructor(
+    auth: OAuth2Client,
+    cache: CacheManager,
+    accountEmail: string,
+    calendarApi?: CalendarApiLike,
+  ) {
+    this.calendar = calendarApi ?? google.calendar({ version: 'v3', auth });
     this.logger = new Logger('CalendarService');
     this.cache = cache;
     this.defaultTimeZone = process.env.DEFAULT_CALENDAR_TIMEZONE || 'America/New_York';
@@ -256,24 +265,41 @@ export class CalendarService {
     comment?: string,
   ): Promise<CalendarEvent> {
     try {
-      // Get the event
-      const event = await this.getEvent(calendarId, eventId);
-      
-      // Update attendee status
-      const attendees = event.attendees || [];
-      // This would need the current user's email to find and update their status
-      // For now, we'll use a placeholder approach
-      
+      // Fetch the RAW event so attendee `self`/`email` fields survive (formatEvent may drop them).
+      const existing = await this.calendar.events.get({
+        calendarId: calendarId || 'primary',
+        eventId,
+      });
+      const attendees = existing.data.attendees || [];
+
+      const isSelf = (attendee: calendar_v3.Schema$EventAttendee): boolean =>
+        attendee.self === true || (attendee.email?.trim().toLowerCase() === this.accountEmail);
+
+      const selfAttendee = attendees.find(isSelf);
+      if (!selfAttendee) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Authenticated account (${this.accountEmail}) is not an attendee of event ${eventId}.`,
+        );
+      }
+
+      // Preserve every attendee untouched; only change the self attendee's responseStatus/comment.
+      const updatedAttendees = attendees.map(attendee =>
+        isSelf(attendee)
+          ? {
+              ...attendee,
+              responseStatus: response,
+              ...(comment ? { comment } : {}),
+            }
+          : attendee,
+      );
+
       const updatedEvent = await this.calendar.events.patch({
         calendarId: calendarId || 'primary',
         eventId,
         sendNotifications: true,
         requestBody: {
-          attendees: attendees.map(attendee => ({
-            ...attendee,
-            responseStatus: response,
-            ...(comment ? { comment } : {}),
-          })),
+          attendees: updatedAttendees,
         },
       });
 
@@ -367,6 +393,64 @@ export class CalendarService {
     }
   }
 
+  async getEventInstances(
+    calendarId: string,
+    eventId: string,
+    opts: { timeMin?: string; timeMax?: string; maxResults?: number; pageToken?: string } = {},
+  ): Promise<CalendarEvent[]> {
+    try {
+      const response = await this.calendar.events.instances({
+        calendarId: calendarId || 'primary',
+        eventId,
+        timeMin: opts.timeMin,
+        timeMax: opts.timeMax,
+        maxResults: opts.maxResults,
+        pageToken: opts.pageToken,
+      });
+
+      const instances = response.data.items || [];
+      return instances.map(this.formatEvent);
+    } catch (error) {
+      this.logger.error(`Failed to list instances for event ${eventId}:`, error);
+      throw error;
+    }
+  }
+
+  async createCalendar(
+    summary: string,
+    opts: { description?: string; timeZone?: string } = {},
+  ): Promise<unknown> {
+    try {
+      const response = await this.calendar.calendars.insert({
+        requestBody: {
+          summary,
+          description: opts.description,
+          timeZone: opts.timeZone,
+        },
+      });
+
+      // Invalidate the cached calendar list.
+      this.cache.deleteAccountCache(this.accountEmail, 'calendar:list');
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to create calendar:', error);
+      throw error;
+    }
+  }
+
+  async deleteCalendar(calendarId: string): Promise<void> {
+    try {
+      await this.calendar.calendars.delete({ calendarId });
+
+      // Invalidate the cached calendar list.
+      this.cache.deleteAccountCache(this.accountEmail, 'calendar:list');
+    } catch (error) {
+      this.logger.error(`Failed to delete calendar ${calendarId}:`, error);
+      throw error;
+    }
+  }
+
   private formatEvent(event: calendar_v3.Schema$Event): CalendarEvent {
     return {
       id: event.id || undefined,
@@ -389,6 +473,7 @@ export class CalendarService {
         responseStatus: (a.responseStatus as any) ?? undefined,
         optional: a.optional ?? undefined,
         organizer: a.organizer ?? undefined,
+        self: a.self ?? undefined,
       })),
       reminders: event.reminders
         ? {
@@ -488,16 +573,71 @@ export class CalendarService {
   }
 
   async handleRespondToInvitation(args: any): Promise<{ content: Array<TextContent> }> {
+    const schema = z.object({
+      calendarId: z.string().optional(),
+      eventId: z.string().min(1),
+      response: z.enum(['accepted', 'declined', 'tentative', 'needsAction']),
+      comment: z.string().optional(),
+    });
+    const input = schema.parse(args);
     const event = await this.respondToInvitation(
-      args.calendarId,
-      args.eventId,
-      args.response,
-      args.comment,
+      input.calendarId ?? 'primary',
+      input.eventId,
+      input.response,
+      input.comment,
     );
     return {
       content: [{
         type: 'text',
         text: JSON.stringify(event, null, 2),
+      }],
+    };
+  }
+
+  async handleGetEventInstances(args: any): Promise<{ content: Array<TextContent> }> {
+    const events = await this.getEventInstances(args.calendarId, args.eventId, {
+      timeMin: args.timeMin,
+      timeMax: args.timeMax,
+      maxResults: args.maxResults,
+      pageToken: args.pageToken,
+    });
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(events, null, 2),
+      }],
+    };
+  }
+
+  async handleCreateCalendar(args: any): Promise<{ content: Array<TextContent> }> {
+    const schema = z.object({
+      summary: z.string().min(1),
+      description: z.string().optional(),
+      timeZone: z.string().optional(),
+    });
+    const input = schema.parse(args);
+    const calendar = await this.createCalendar(input.summary, {
+      description: input.description,
+      timeZone: input.timeZone,
+    });
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(calendar, null, 2),
+      }],
+    };
+  }
+
+  async handleDeleteCalendar(args: any): Promise<{ content: Array<TextContent> }> {
+    const schema = z.object({
+      calendarId: z.string().min(1),
+    });
+    const input = schema.parse(args);
+    await this.deleteCalendar(input.calendarId);
+    return {
+      content: [{
+        type: 'text',
+        text: `Calendar ${input.calendarId} deleted successfully`,
       }],
     };
   }

@@ -340,10 +340,31 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
   }));
 
   const cal = program.command('cal').alias('calendar').description('Google Calendar commands');
-  cal.command('calendars').description('List calendars').action(() => runAction(program, runtime, async () => {
+  const calendars = cal.command('calendars').description('List and manage calendars');
+  calendars.action(() => runAction(program, runtime, async () => {
     const account = await currentAccount(program, runtime);
     return { account, items: await (await runtime.services.calendar(account)).listCalendars() };
   }));
+  calendars.command('create')
+    .description('Create a secondary calendar')
+    .requiredOption('--summary <s>', 'Calendar title')
+    .option('--description <d>', 'Calendar description')
+    .option('--timezone <tz>', 'Calendar time zone (IANA)')
+    .action((opts) => runAction(program, runtime, async () => {
+      const account = await currentAccount(program, runtime);
+      const payload = { summary: opts.summary, description: opts.description, timeZone: opts.timezone };
+      if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.calendars.create', payload } };
+      return { account, calendar: await (await runtime.services.calendar(account)).createCalendar(payload.summary, { description: payload.description, timeZone: payload.timeZone }) };
+    }));
+  calendars.command('delete')
+    .description('Delete a secondary calendar (destructive)')
+    .argument('<calendarId>')
+    .action((calendarId) => runAction(program, runtime, async () => {
+      const account = await currentAccount(program, runtime);
+      if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'calendar.calendars.delete', calendarId } };
+      await (await runtime.services.calendar(account)).deleteCalendar(calendarId);
+      return { account, deleted: calendarId };
+    }));
   cal.command('freebusy')
     .requiredOption('--from <timeMin>')
     .requiredOption('--to <timeMax>')
@@ -377,6 +398,21 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     const account = await currentAccount(program, runtime);
     return await (await runtime.services.calendar(account)).getEvent(opts.calendar, eventId);
   }));
+  events.command('instances')
+    .description('List instances (occurrences) of a recurring event')
+    .argument('<eventId>')
+    .option('--calendar <id>', 'Calendar ID', 'primary')
+    .option('--from <timeMin>')
+    .option('--to <timeMax>')
+    .option('--limit <n>', 'Maximum results')
+    .action((eventId, opts) => runAction(program, runtime, async () => {
+      const account = await currentAccount(program, runtime);
+      return { account, items: await (await runtime.services.calendar(account)).getEventInstances(opts.calendar, eventId, {
+        timeMin: opts.from,
+        timeMax: opts.to,
+        maxResults: opts.limit !== undefined ? parsePositiveInteger(opts.limit, 'limit') : undefined,
+      }) };
+    }));
   addCalendarEventOptions(events.command('create').description('Create calendar event')).action((opts) => runAction(program, runtime, async () => {
     const account = await currentAccount(program, runtime);
     const payload = await buildCalendarEventPayload(opts, await defaultTimezone(runtime, opts.timezone), runtime.readStdin);

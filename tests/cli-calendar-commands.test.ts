@@ -82,6 +82,9 @@ test('calendar freebusy uses repeated calendars and configured timezone', async 
         quickAddEvent: async (_calendarId, text) => ({ summary: text, start: {}, end: {} }),
         searchEvents: async () => [],
         addConferenceToEvent: async (_calendarId, eventId) => ({ id: eventId, summary: 'Conference', start: {}, end: {} }),
+        getEventInstances: async (_calendarId, eventId) => [{ id: `${eventId}_1`, summary: 'Instance', start: {}, end: {} }],
+        createCalendar: async (summary) => ({ id: 'cal-1', summary }),
+        deleteCalendar: async () => undefined,
       }),
     },
   });
@@ -135,6 +138,9 @@ test('calendar respond dry-run validates response without calling service', asyn
         quickAddEvent: async (_calendarId, text) => ({ summary: text, start: {}, end: {} }),
         searchEvents: async () => [],
         addConferenceToEvent: async (_calendarId, eventId) => ({ id: eventId, summary: 'Conference', start: {}, end: {} }),
+        getEventInstances: async (_calendarId, eventId) => [{ id: `${eventId}_1`, summary: 'Instance', start: {}, end: {} }],
+        createCalendar: async (summary) => ({ id: 'cal-1', summary }),
+        deleteCalendar: async () => undefined,
       }),
     },
   });
@@ -176,6 +182,9 @@ test('calendar search and conference commands are wired to calendar service', as
         calls.push({ kind: 'conference', calendarId, eventId, conferenceType });
         return { id: eventId, summary: conferenceType, start: {}, end: {} };
       },
+      getEventInstances: async (_calendarId: string, eventId: string) => [{ id: `${eventId}_1`, summary: 'Instance', start: {}, end: {} }],
+      createCalendar: async (summary: string) => ({ id: 'cal-1', summary }),
+      deleteCalendar: async () => undefined,
     }),
   };
 
