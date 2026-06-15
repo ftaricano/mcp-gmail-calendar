@@ -276,7 +276,7 @@ export const forwardEmailTool: Tool = {
 
 export const deleteEmailTool: Tool = {
   name: 'email_delete',
-  description: 'Delete an email (move to trash)',
+  description: 'Delete an email by moving it to trash',
   inputSchema: {
     type: 'object',
     properties: {
@@ -286,6 +286,172 @@ export const deleteEmailTool: Tool = {
       },
     },
     required: ['messageId'],
+  },
+};
+
+export const archiveEmailTool: Tool = {
+  name: 'email_archive',
+  description: 'Archive an email by removing it from the inbox',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      messageId: {
+        type: 'string',
+        description: 'ID of the email to archive',
+      },
+    },
+    required: ['messageId'],
+  },
+};
+
+// Draft Tools
+export const listDraftsTool: Tool = {
+  name: 'email_draft_list',
+  description: 'List Gmail drafts',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      maxResults: { type: 'integer', minimum: 1, maximum: 500, description: 'Maximum number of drafts to return' },
+      pageToken: { type: 'string', description: 'Token for pagination' },
+      query: { type: 'string', description: 'Gmail search query to filter drafts' },
+    },
+  },
+};
+
+export const getDraftTool: Tool = {
+  name: 'email_draft_get',
+  description: 'Get a specific Gmail draft by its ID',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      draftId: { type: 'string', description: 'Draft ID' },
+    },
+    required: ['draftId'],
+  },
+};
+
+export const createDraftTool: Tool = {
+  name: 'email_draft_create',
+  description: 'Create a new Gmail draft',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      to: {
+        type: 'array',
+        items: { type: 'string', format: 'email' },
+        description: 'Recipient email address(es)',
+      },
+      subject: { type: 'string', description: 'Draft subject' },
+      body: { type: 'string', description: 'Plain text body' },
+      bodyHtml: { type: 'string', description: 'HTML body' },
+      cc: { type: 'array', items: { type: 'string', format: 'email' } },
+      bcc: { type: 'array', items: { type: 'string', format: 'email' } },
+      replyTo: { type: 'string', format: 'email' },
+      threadId: { type: 'string', description: 'Thread ID to attach the draft to' },
+      importance: { type: 'string', enum: ['low', 'normal', 'high'] },
+    },
+  },
+};
+
+export const updateDraftTool: Tool = {
+  name: 'email_draft_update',
+  description: 'Update an existing Gmail draft',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      draftId: { type: 'string', description: 'Draft ID to update' },
+      to: {
+        type: 'array',
+        items: { type: 'string', format: 'email' },
+        description: 'Recipient email address(es)',
+      },
+      subject: { type: 'string', description: 'Draft subject' },
+      body: { type: 'string', description: 'Plain text body' },
+      bodyHtml: { type: 'string', description: 'HTML body' },
+      cc: { type: 'array', items: { type: 'string', format: 'email' } },
+      bcc: { type: 'array', items: { type: 'string', format: 'email' } },
+      replyTo: { type: 'string', format: 'email' },
+      threadId: { type: 'string', description: 'Thread ID to attach the draft to' },
+      importance: { type: 'string', enum: ['low', 'normal', 'high'] },
+    },
+    required: ['draftId'],
+  },
+};
+
+export const sendDraftTool: Tool = {
+  name: 'email_draft_send',
+  description: 'Send an existing Gmail draft',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      draftId: { type: 'string', description: 'Draft ID to send' },
+    },
+    required: ['draftId'],
+  },
+};
+
+export const deleteDraftTool: Tool = {
+  name: 'email_draft_delete',
+  description: 'Delete a Gmail draft',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      draftId: { type: 'string', description: 'Draft ID to delete' },
+    },
+    required: ['draftId'],
+  },
+};
+
+// Thread Tools
+export const listThreadsTool: Tool = {
+  name: 'email_thread_list',
+  description: 'List Gmail threads with optional filtering',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      maxResults: { type: 'integer', minimum: 1, maximum: 500, description: 'Maximum number of threads to return' },
+      pageToken: { type: 'string', description: 'Token for pagination' },
+      query: { type: 'string', description: 'Gmail search query' },
+      labelIds: { type: 'array', items: { type: 'string' }, description: 'Label IDs to filter by' },
+    },
+  },
+};
+
+export const getThreadTool: Tool = {
+  name: 'email_thread_get',
+  description: 'Get a specific Gmail thread by its ID',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      threadId: { type: 'string', description: 'Thread ID' },
+    },
+    required: ['threadId'],
+  },
+};
+
+export const modifyThreadTool: Tool = {
+  name: 'email_thread_modify',
+  description: 'Add or remove labels on a Gmail thread',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      threadId: { type: 'string', description: 'Thread ID' },
+      addLabelIds: { type: 'array', items: { type: 'string' }, description: 'Label IDs to add' },
+      removeLabelIds: { type: 'array', items: { type: 'string' }, description: 'Label IDs to remove' },
+    },
+    required: ['threadId'],
+  },
+};
+
+export const trashThreadTool: Tool = {
+  name: 'email_thread_trash',
+  description: 'Move a Gmail thread to trash',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      threadId: { type: 'string', description: 'Thread ID to trash' },
+    },
+    required: ['threadId'],
   },
 };
 

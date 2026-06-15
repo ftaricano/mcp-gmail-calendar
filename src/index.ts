@@ -102,6 +102,21 @@ class GmailCalendarMCPServer {
       tools.createLabelTool,
       tools.listLabelsTool,
       tools.batchEmailOperationsTool,
+      tools.archiveEmailTool,
+
+      // Draft Tools
+      tools.listDraftsTool,
+      tools.getDraftTool,
+      tools.createDraftTool,
+      tools.updateDraftTool,
+      tools.sendDraftTool,
+      tools.deleteDraftTool,
+
+      // Thread Tools
+      tools.listThreadsTool,
+      tools.getThreadTool,
+      tools.modifyThreadTool,
+      tools.trashThreadTool,
 
       // Attachment Tools
       tools.listAttachmentsTool,
@@ -439,6 +454,39 @@ class GmailCalendarMCPServer {
       case 'gmail_batch_operations':
         return await this.gmailService!.handleBatchOperations(args);
       
+      case 'email_archive':
+        return await this.gmailService!.handleArchiveEmail(args);
+
+      case 'email_draft_list':
+        return await this.gmailService!.handleListDrafts(args);
+
+      case 'email_draft_get':
+        return await this.gmailService!.handleGetDraft(args);
+
+      case 'email_draft_create':
+        return await this.gmailService!.handleCreateDraft(args);
+
+      case 'email_draft_update':
+        return await this.gmailService!.handleUpdateDraft(args);
+
+      case 'email_draft_send':
+        return await this.gmailService!.handleSendDraft(args);
+
+      case 'email_draft_delete':
+        return await this.gmailService!.handleDeleteDraft(args);
+
+      case 'email_thread_list':
+        return await this.gmailService!.handleListThreads(args);
+
+      case 'email_thread_get':
+        return await this.gmailService!.handleGetThread(args);
+
+      case 'email_thread_modify':
+        return await this.gmailService!.handleModifyThread(args);
+
+      case 'email_thread_trash':
+        return await this.gmailService!.handleTrashThread(args);
+
       case 'email_list_attachments':
       case 'gmail_list_attachments':
         return await this.gmailService!.handleListAttachments(args);

@@ -90,7 +90,8 @@ export function createCliRuntime(options: CreateProgramOptions = {}): CliRuntime
     stdout: options.stdout ?? process.stdout,
     stderr: options.stderr ?? process.stderr,
     readStdin: createReadStdin(options.readStdin),
-    version: options.version ?? '1.0.0',
+    // TODO: derive from package.json to avoid drift (package.json sits outside rootDir, so it cannot be imported under the current tsconfig).
+    version: options.version ?? '1.1.0',
     configPath,
     statePath,
     now: () => Date.now(),

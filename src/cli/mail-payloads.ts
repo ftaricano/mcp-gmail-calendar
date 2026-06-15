@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import mime from 'mime-types';
-import type { SendEmailOptions } from '../services/GmailService.js';
+import type { DraftWriteOptions, SendEmailOptions } from '../services/GmailService.js';
 import { ValidationCliError } from './errors.js';
 import { parseEmailList, parseStructuredJsonInput, readTextInput } from './parsers.js';
 
@@ -126,6 +126,45 @@ export async function buildMailPayloadPreview(
     subject: requiredString(options.subject, 'subject'),
   };
 
+  if (body) preview.body = body;
+  if (bodyHtml) preview.bodyHtml = bodyHtml;
+  if (options.cc) preview.cc = parseEmailList(options.cc);
+  if (options.bcc) preview.bcc = parseEmailList(options.bcc);
+  if (options.replyTo) preview.replyTo = requiredString(options.replyTo, 'replyTo');
+  if (options.templateId) preview.templateId = requiredString(options.templateId, 'templateId');
+  if (options.importance) preview.importance = options.importance;
+  if (options.attachment?.length) {
+    preview.attachments = options.attachment.map((filePath) => ({
+      path: filePath,
+      filename: path.basename(filePath),
+      contentType: mime.lookup(filePath) || 'application/octet-stream',
+    }));
+  }
+
+  return preview;
+}
+
+// Drafts may be works-in-progress, so to/subject are optional (mirrors the MCP
+// draftWriteSchema). Otherwise identical to buildMailPayload.
+export async function buildDraftPayload(
+  options: MailPayloadOptions,
+  readStdin: () => Promise<string>,
+): Promise<DraftWriteOptions> {
+  const payload: DraftWriteOptions = await resolveMailComposeInputs(options, readStdin);
+  if (options.to?.trim()) payload.to = parseEmailList(options.to);
+  if (options.subject?.trim()) payload.subject = options.subject.trim();
+  return payload;
+}
+
+export async function buildDraftPayloadPreview(
+  options: MailPayloadOptions,
+  readStdin: () => Promise<string>,
+): Promise<Record<string, unknown>> {
+  const { body, bodyHtml } = await resolveBodyContent(options, readStdin);
+  const preview: Record<string, unknown> = {};
+
+  if (options.to?.trim()) preview.to = parseEmailList(options.to);
+  if (options.subject?.trim()) preview.subject = options.subject.trim();
   if (body) preview.body = body;
   if (bodyHtml) preview.bodyHtml = bodyHtml;
   if (options.cc) preview.cc = parseEmailList(options.cc);
