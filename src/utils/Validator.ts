@@ -269,8 +269,23 @@ export function isBlockedIpv6(host: string): boolean {
   // 0x2000..0x3fff) is routable public space. Everything else is non-global and
   // fail-closed — ULA fc00::/7, link-local fe80::/10, site-local fec0::/10
   // (deprecated), multicast ff00::/8, and any other special range.
-  const firstHextet = parseInt(host.split(':')[0] || '0', 16);
-  return !(firstHextet >= 0x2000 && firstHextet <= 0x3fff);
+  const groups = host.split(':');
+  const h0 = parseInt(groups[0] || '0', 16);
+  const h1 = parseInt(groups[1] || '0', 16);
+
+  if (h0 < 0x2000 || h0 > 0x3fff) return true; // outside global-unicast 2000::/3
+
+  // Within 2000::/3 there are IANA special-purpose IPv6 sub-ranges that are NOT
+  // globally routable (IANA IPv6 Special-Purpose Address Registry). These must
+  // fail-closed because the prefixes live at the START of the address, the ::
+  // compression (if any) sits in the middle/end, so the leading hextets are
+  // safe to read positionally from the split.
+  if (h0 === 0x2002) return true; // 6to4 2002::/16 — may encapsulate internal IPv4
+  if (h0 === 0x2001 && h1 === 0x0db8) return true; // documentation 2001:db8::/32
+  if (h0 === 0x2001 && (h1 & 0xfe00) === 0x0000) return true; // IETF protocol assignments 2001::/23 (Teredo, benchmarking, ORCHID, …)
+  if ((h0 & 0xfff0) === 0x3ff0) return true; // documentation 3fff::/20
+
+  return false; // remainder of 2000::/3 is genuine global-unicast
 }
 
 // Returns true when an IP literal (v4 or v6, no brackets) targets a

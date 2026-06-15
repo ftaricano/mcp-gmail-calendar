@@ -102,6 +102,12 @@ test('isSafeFetchUrl rejects non-global IPv6 (ULA, link-local, mapped IPv4)', ()
     'http://[::1]/',
     'http://[::]/',
     'http://[::a00:1]/', // IPv4-compatible / deprecated ::10.0.0.1
+    'http://[2002:7f00:1::]/', // 6to4 2002::/16 encapsulating 127.0.0.1
+    'http://[2002:a00:1::]/', // 6to4 2002::/16 encapsulating 10.0.0.1
+    'http://[2001:db8::1]/', // documentation 2001:db8::/32
+    'http://[2001:2::1]/', // benchmarking, inside IETF protocol 2001::/23
+    'http://[2001::1]/', // Teredo 2001::/32, inside 2001::/23
+    'http://[3fff::1]/', // documentation 3fff::/20
   ];
 
   for (const url of blocked) {
@@ -111,6 +117,8 @@ test('isSafeFetchUrl rejects non-global IPv6 (ULA, link-local, mapped IPv4)', ()
 
 test('isSafeFetchUrl allows global-unicast IPv6', () => {
   assert.equal(isSafeFetchUrl('http://[2606:4700::1111]/'), true);
+  assert.equal(isSafeFetchUrl('https://[2a00:1450:4001::1]/'), true);
+  // 2001:4860 is outside 2001::/23 (0x4860 & 0xfe00 = 0x4800) and != db8.
   assert.equal(isSafeFetchUrl('https://[2001:4860:4860::8888]/'), true);
 });
 
