@@ -90,22 +90,44 @@ export type GmailApiLike = Pick<gmail_v1.Gmail, 'users'>;
 const messageIdSchema = z.object({ messageId: z.string().min(1, 'messageId is required') });
 const draftIdSchema = z.object({ draftId: z.string().min(1, 'draftId is required') });
 const threadIdSchema = z.object({ threadId: z.string().min(1, 'threadId is required') });
+
+// Shared compose field validators. A recipient/address field may be a single
+// string or a non-empty array of strings; attachments must carry filename+content.
+const addressField = z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]);
+const attachmentSchema = z.object({
+  filename: z.string().min(1, 'attachment.filename is required'),
+  content: z.union([z.string(), z.instanceof(Buffer)]),
+}).passthrough();
+const composeFields = {
+  cc: addressField.optional(),
+  bcc: addressField.optional(),
+  replyTo: z.string().min(1).optional(),
+  attachments: z.array(attachmentSchema).optional(),
+  importance: z.enum(['low', 'normal', 'high']).optional(),
+};
+
 const sendEmailSchema = z.object({
-  to: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+  to: addressField,
   subject: z.string().min(1, 'subject is required'),
+  ...composeFields,
 }).passthrough();
 const draftWriteSchema = z.object({
-  to: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
+  to: addressField.optional(),
   subject: z.string().optional(),
+  ...composeFields,
 }).passthrough();
 const replyEmailSchema = z.object({
   messageId: z.string().min(1, 'messageId is required'),
+  ...composeFields,
 }).passthrough();
 const threadModifySchema = z.object({
   threadId: z.string().min(1, 'threadId is required'),
   addLabelIds: z.array(z.string()).optional(),
   removeLabelIds: z.array(z.string()).optional(),
-}).passthrough();
+}).passthrough().refine(
+  (val) => (val.addLabelIds?.length ?? 0) > 0 || (val.removeLabelIds?.length ?? 0) > 0,
+  { message: 'at least one of addLabelIds or removeLabelIds must be a non-empty array', path: ['addLabelIds'] },
+);
 const deleteEmailSchema = z.object({
   messageId: z.string().min(1, 'messageId is required'),
   permanent: z.boolean().optional(),
@@ -257,29 +279,41 @@ export class GmailService {
     }
   }
 
+  /**
+   * Resolves template/HTML content for an outgoing message before it is handed
+   * to buildEmailMessage. Shared by sendEmail, createDraft and updateDraft so
+   * that drafts honour templateId/templateData and default-template wrapping
+   * identically to sends.
+   */
+  private async prepareSendContent<T extends DraftWriteOptions>(options: T): Promise<T> {
+    let htmlContent = options.bodyHtml;
+
+    // Apply template if specified
+    if (options.templateId) {
+      htmlContent = await this.templateEngine.render(
+        options.templateId,
+        options.templateData || {}
+      );
+    } else if (options.bodyHtml) {
+      // Apply default template to HTML content
+      htmlContent = await this.templateEngine.wrapInDefaultTemplate(
+        options.bodyHtml,
+        options.subject
+      );
+    }
+
+    return {
+      ...options,
+      bodyHtml: htmlContent,
+    };
+  }
+
   async sendEmail(options: SendEmailOptions): Promise<string> {
     try {
-      let htmlContent = options.bodyHtml;
-      
-      // Apply template if specified
-      if (options.templateId) {
-        htmlContent = await this.templateEngine.render(
-          options.templateId,
-          options.templateData || {}
-        );
-      } else if (options.bodyHtml) {
-        // Apply default template to HTML content
-        htmlContent = await this.templateEngine.wrapInDefaultTemplate(
-          options.bodyHtml,
-          options.subject
-        );
-      }
+      const prepared = await this.prepareSendContent(options);
 
       // Build email message
-      const message = await this.buildEmailMessage({
-        ...options,
-        bodyHtml: htmlContent,
-      });
+      const message = await this.buildEmailMessage(prepared);
 
       // Send email
       const response = await this.gmail.users.messages.send({
@@ -413,8 +447,8 @@ export class GmailService {
       });
 
       const headers = response.data.payload?.headers || [];
-      const messageIdHeader = headers.find((h) => h.name === 'Message-ID')?.value;
-      const origReferences = headers.find((h) => h.name === 'References')?.value;
+      const messageIdHeader = headers.find((h) => h.name?.toLowerCase() === 'message-id')?.value;
+      const origReferences = headers.find((h) => h.name?.toLowerCase() === 'references')?.value;
 
       if (messageIdHeader) {
         replyOptions.inReplyTo = messageIdHeader;
@@ -540,7 +574,8 @@ export class GmailService {
 
   async createDraft(options: DraftWriteOptions): Promise<string> {
     try {
-      const raw = await this.buildEmailMessage(options);
+      const prepared = await this.prepareSendContent(options);
+      const raw = await this.buildEmailMessage(prepared);
       const response = await this.gmail.users.drafts.create({
         userId: 'me',
         requestBody: {
@@ -559,7 +594,8 @@ export class GmailService {
 
   async updateDraft(draftId: string, options: DraftWriteOptions): Promise<string> {
     try {
-      const raw = await this.buildEmailMessage(options);
+      const prepared = await this.prepareSendContent(options);
+      const raw = await this.buildEmailMessage(prepared);
       const response = await this.gmail.users.drafts.update({
         userId: 'me',
         id: draftId,

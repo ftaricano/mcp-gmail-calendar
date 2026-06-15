@@ -62,3 +62,59 @@ test('replyToEmail emits threading headers and forwards threadId', async () => {
   assert.ok(decoded.includes('In-Reply-To: <mid@x>'), 'should contain In-Reply-To header');
   assert.ok(decoded.includes('References: <older@x> <mid@x>'), 'should contain References header with chained value');
 });
+
+test('replyToEmail header lookup is case-insensitive (Message-Id / references)', async () => {
+  let sentRequestBody: any;
+
+  const gmailApi = {
+    users: {
+      messages: {
+        send: async (input: any) => {
+          sentRequestBody = input.requestBody;
+          return { data: { id: 'reply-msg-2' } };
+        },
+        get: async (input: any) => {
+          if (input.format === 'full') {
+            return {
+              data: {
+                id: input.id,
+                threadId: '<thread2>',
+                labelIds: [],
+                snippet: '',
+                payload: {
+                  headers: [
+                    { name: 'From', value: 'origin@example.com' },
+                    { name: 'Subject', value: 'Original' },
+                    { name: 'To', value: 'me@example.com' },
+                  ],
+                },
+              },
+            };
+          }
+          // metadata call: RFC permits any header casing
+          return {
+            data: {
+              payload: {
+                headers: [
+                  { name: 'Message-Id', value: '<mixed@x>' },
+                  { name: 'references', value: '<lower@x>' },
+                ],
+              },
+            },
+          };
+        },
+      },
+    },
+  } as unknown as GmailApiLike;
+
+  const service = new GmailService({} as never, new CacheManager(), 'me@example.com', gmailApi);
+  const id = await service.replyToEmail('orig-2', { body: 'reply body' });
+
+  assert.equal(id, 'reply-msg-2');
+  const decoded = decodeRaw(sentRequestBody.raw);
+  assert.ok(decoded.includes('In-Reply-To: <mixed@x>'), 'should resolve In-Reply-To despite Message-Id casing');
+  assert.ok(
+    decoded.includes('References: <lower@x> <mixed@x>'),
+    'should chain References despite lowercase header casing',
+  );
+});
