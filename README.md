@@ -16,7 +16,7 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - Gmail list/search/read/send/reply/forward/delete/archive/labels/drafts/threads/attachments/read-status commands
 - Calendar list/upcoming/search/freebusy/create/update/delete/respond/quickadd/conference/instances commands, plus secondary calendar create/delete
 - Drive list/get/upload/download/mkdir/share/trash/restore/copy/batch-delete/revisions/shared-drives/shortcut commands (full CLI↔MCP parity)
-- Docs get/export/create commands
+- Docs get/export/create plus insert-text/replace-text/insert-table/insert-image/batch-update commands (CLI↔MCP parity via `documents.batchUpdate`)
 - Sheets spreadsheet and values get/update/append commands
 - Existing MCP toolset for Gmail, Calendar, attachments, and templates
 
@@ -262,9 +262,19 @@ Allowed Drive share types: `user`, `group`, `domain`, `anyone`.
 gws docs get DOCUMENT_ID
 gws docs export DOCUMENT_ID --mime-type pdf --output ./doc.pdf
 gws docs create "Meeting Notes" --content "Initial notes"
+gws --dry-run docs insert-text DOCUMENT_ID --text "Appended line" --index 1
+gws --dry-run docs replace-text DOCUMENT_ID --find "{{name}}" --replace "Ferd" --match-case
+gws --dry-run docs insert-table DOCUMENT_ID --rows 3 --columns 2 --index 1
+gws --dry-run docs insert-image DOCUMENT_ID --uri https://example.com/logo.png --index 1
+gws --dry-run docs batch-update DOCUMENT_ID --requests '[{"insertText":{"location":{"index":1},"text":"raw"}}]'
 ```
 
 Export MIME aliases include `pdf`, `docx`, `txt`, and `html`.
+
+The edit commands (`insert-text`, `replace-text`, `insert-table`, `insert-image`, `batch-update`)
+are mutating and support `--dry-run`, returning a `{ "dryRun": true, "would": ... }` envelope. They
+are backed by Google Docs `documents.batchUpdate`; `batch-update` accepts a raw request array for
+operations not covered by the typed helpers (text styling, paragraph formatting, etc.).
 
 ## Sheets examples
 
@@ -342,6 +352,11 @@ node /absolute/path/to/mcp-gmail-calendar/dist/index.js
 - Calendar: `calendar_list`, `event_list`, `event_get`, `event_create`, `event_update`, `event_delete`, availability, invitation response, quick add, upcoming
 - Drive: `drive_list`, `drive_get`, `drive_upload`, `drive_download`, `drive_mkdir`, `drive_share`, `drive_trash`, `drive_restore`, `drive_copy`, `drive_batch_delete`, `drive_revisions`, `drive_shared_drives`, `drive_shortcut`
 - Templates: list, render, create
+- Docs: `docs_get`, `docs_create`, `docs_export`, `docs_batch_update`, `docs_insert_text`, `docs_replace_text`, `docs_insert_table`, `docs_insert_image`
+
+Docs has full CLI↔MCP parity: every `gws docs <command>` maps to a `docs_*` MCP tool with the same
+underlying service method. Mutating MCP tools validate arguments with zod and reject malformed input
+with `InvalidParams`; the CLI exposes the same operations behind `--dry-run`.
 
 Drive now has CLI↔MCP parity: every `gws drive` command has a matching `drive_*` MCP tool. As in the CLI, `drive_trash` and `drive_batch_delete` move files to the trash (recoverable) instead of deleting permanently.
 

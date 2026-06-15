@@ -131,6 +131,14 @@ export interface DocsServiceLike {
   getDocument(documentId: string): Promise<unknown>;
   exportDocument(documentId: string, mimeType: string, outputPath: string): Promise<{ path: string; mimeType: string; size: number }>;
   createDocument(title: string, content?: string): Promise<unknown>;
+  batchUpdate(documentId: string, requests: unknown[]): Promise<unknown>;
+  insertText(documentId: string, text: string, index?: number): Promise<unknown>;
+  replaceAllText(
+    documentId: string,
+    replacements: Array<{ find: string; replace: string; matchCase?: boolean }>,
+  ): Promise<unknown>;
+  insertTable(documentId: string, rows: number, columns: number, index?: number): Promise<unknown>;
+  insertImage(documentId: string, uri: string, index?: number): Promise<unknown>;
 }
 
 export interface SheetsServiceLike {

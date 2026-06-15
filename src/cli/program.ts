@@ -535,6 +535,44 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     const account = await currentAccount(program, runtime);
     return { account, ...(await (await runtime.services.docs(account)).exportDocument(documentId, normalizeDocsExportMimeType(opts.mimeType), opts.output)) };
   }));
+  docs.command('insert-text').argument('<documentId>').requiredOption('--text <text>').option('--index <n>', 'Insertion index', '1').action((documentId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const index = parsePositiveInteger(opts.index, 'index');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'docs.insert-text', documentId, text: opts.text, index } };
+    return { account, result: await (await runtime.services.docs(account)).insertText(documentId, opts.text, index) };
+  }));
+  docs.command('replace-text').argument('<documentId>').requiredOption('--find <find>').requiredOption('--replace <replace>').option('--match-case').action((documentId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const replacements = [{ find: opts.find, replace: opts.replace, matchCase: Boolean(opts.matchCase) }];
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'docs.replace-text', documentId, replacements } };
+    return { account, result: await (await runtime.services.docs(account)).replaceAllText(documentId, replacements) };
+  }));
+  docs.command('insert-table').argument('<documentId>').requiredOption('--rows <n>').requiredOption('--columns <n>').option('--index <n>', 'Insertion index', '1').action((documentId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const rows = parsePositiveInteger(opts.rows, 'rows');
+    const columns = parsePositiveInteger(opts.columns, 'columns');
+    const index = parsePositiveInteger(opts.index, 'index');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'docs.insert-table', documentId, rows, columns, index } };
+    return { account, result: await (await runtime.services.docs(account)).insertTable(documentId, rows, columns, index) };
+  }));
+  docs.command('insert-image').argument('<documentId>').requiredOption('--uri <url>').option('--index <n>', 'Insertion index', '1').action((documentId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const index = parsePositiveInteger(opts.index, 'index');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'docs.insert-image', documentId, uri: opts.uri, index } };
+    return { account, result: await (await runtime.services.docs(account)).insertImage(documentId, opts.uri, index) };
+  }));
+  docs.command('batch-update').argument('<documentId>').requiredOption('--requests <json>', 'Raw batchUpdate requests array JSON').action((documentId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    let requests: unknown;
+    try {
+      requests = JSON.parse(opts.requests);
+    } catch {
+      throw new TypeError('--requests must be valid JSON (a batchUpdate requests array)');
+    }
+    if (!Array.isArray(requests)) throw new TypeError('--requests must be a JSON array');
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'docs.batch-update', documentId, requests } };
+    return { account, result: await (await runtime.services.docs(account)).batchUpdate(documentId, requests) };
+  }));
 
   const sheets = program.command('sheets').description('Google Sheets commands');
   sheets.command('get').argument('<spreadsheetId>').action((spreadsheetId) => runAction(program, runtime, async () => {

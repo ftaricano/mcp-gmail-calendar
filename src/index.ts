@@ -19,6 +19,7 @@ import { GoogleAuthManager } from './auth/GoogleAuthManager.js';
 import { GmailService } from './services/GmailService.js';
 import { CalendarService } from './services/CalendarService.js';
 import { DriveService } from './services/DriveService.js';
+import { DocsService } from './services/DocsService.js';
 import { Logger } from './utils/Logger.js';
 import { CacheManager } from './utils/CacheManager.js';
 import { validateEnvironment } from './utils/Validator.js';
@@ -32,6 +33,7 @@ class GmailCalendarMCPServer {
   private gmailService: GmailService | null = null;
   private calendarService: CalendarService | null = null;
   private driveService: DriveService | null = null;
+  private docsService: DocsService | null = null;
   private logger: Logger;
   private cache: CacheManager;
   private currentAccount: string | null = null;
@@ -159,6 +161,16 @@ class GmailCalendarMCPServer {
       tools.listEmailTemplatesTool,
       tools.renderEmailTemplateTool,
       tools.createCustomTemplateTool,
+
+      // Google Docs Tools
+      tools.docsGetTool,
+      tools.docsCreateTool,
+      tools.docsExportTool,
+      tools.docsBatchUpdateTool,
+      tools.docsInsertTextTool,
+      tools.docsReplaceTextTool,
+      tools.docsInsertTableTool,
+      tools.docsInsertImageTool,
     ];
   }
 
@@ -302,6 +314,11 @@ class GmailCalendarMCPServer {
         return await this.handleTemplateTool(name, args);
       }
 
+      // Docs tools
+      if (name.startsWith('docs_')) {
+        return await this.handleDocsTool(name, args);
+      }
+
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     } catch (error) {
       this.logger.error(`Error handling tool call ${name}:`, error);
@@ -384,6 +401,7 @@ class GmailCalendarMCPServer {
       this.gmailService = null;
       this.calendarService = null;
       this.driveService = null;
+      this.docsService = null;
     }
 
     return {
@@ -653,6 +671,39 @@ class GmailCalendarMCPServer {
     }
   }
 
+  private async handleDocsTool(name: string, args: any): Promise<{ content: Array<TextContent> }> {
+    await this.ensureServicesInitialized();
+
+    switch (name) {
+      case 'docs_get':
+        return await this.docsService!.handleGetDocument(args);
+
+      case 'docs_create':
+        return await this.docsService!.handleCreateDocument(args);
+
+      case 'docs_export':
+        return await this.docsService!.handleExportDocument(args);
+
+      case 'docs_batch_update':
+        return await this.docsService!.handleBatchUpdate(args);
+
+      case 'docs_insert_text':
+        return await this.docsService!.handleInsertText(args);
+
+      case 'docs_replace_text':
+        return await this.docsService!.handleReplaceAllText(args);
+
+      case 'docs_insert_table':
+        return await this.docsService!.handleInsertTable(args);
+
+      case 'docs_insert_image':
+        return await this.docsService!.handleInsertImage(args);
+
+      default:
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown docs tool: ${name}`);
+    }
+  }
+
   private async ensureAuthenticated(email: string): Promise<void> {
     const accounts = await this.authManager.listAccounts();
     const account = accounts.find(a => a.email === email);
@@ -668,7 +719,7 @@ class GmailCalendarMCPServer {
   }
 
   private async ensureServicesInitialized(): Promise<void> {
-    if (!this.gmailService || !this.calendarService || !this.driveService) {
+    if (!this.gmailService || !this.calendarService || !this.driveService || !this.docsService) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         'Services not initialized. Please authenticate or switch to an account first.'
@@ -713,6 +764,7 @@ class GmailCalendarMCPServer {
     this.gmailService = new GmailService(auth, this.cache, email);
     this.calendarService = new CalendarService(auth, this.cache, email);
     this.driveService = new DriveService(auth, this.cache, email);
+    this.docsService = new DocsService(auth, this.cache, email);
     
     // Initialize template engine
     if (this.gmailService && this.gmailService.templateEngine) {

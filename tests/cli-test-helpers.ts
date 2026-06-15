@@ -122,6 +122,11 @@ export function createFakeServices(
       size: 10,
     }),
     createDocument: async (title: string, content?: string) => ({ documentId: 'doc-1', title, content }),
+    batchUpdate: async (documentId: string, requests: unknown[]) => ({ documentId, replies: requests.map(() => ({})) }),
+    insertText: async (documentId: string) => ({ documentId, replies: [{}] }),
+    replaceAllText: async (documentId: string, replacements) => ({ documentId, replies: replacements.map(() => ({ replaceAllText: { occurrencesChanged: 1 } })) }),
+    insertTable: async (documentId: string) => ({ documentId, replies: [{}] }),
+    insertImage: async (documentId: string) => ({ documentId, replies: [{ insertInlineImage: { objectId: 'img-1' } }] }),
   };
 
   const sheets: SheetsServiceLike = {
