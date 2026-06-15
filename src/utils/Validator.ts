@@ -253,17 +253,12 @@ export function isBlockedIpv6(host: string): boolean {
   // abuse to reach internal IPv4 -> fail-closed.
   if (host.startsWith('::') && host !== '::') return true;
 
-  // Classify by the first hextet for the remaining well-known non-global ranges.
+  // Allowlist, not blocklist: only global-unicast 2000::/3 (first hextet
+  // 0x2000..0x3fff) is routable public space. Everything else is non-global and
+  // fail-closed — ULA fc00::/7, link-local fe80::/10, site-local fec0::/10
+  // (deprecated), multicast ff00::/8, and any other special range.
   const firstHextet = parseInt(host.split(':')[0] || '0', 16);
-
-  // ULA fc00::/7 -> first byte 0xfc or 0xfd.
-  if ((firstHextet & 0xfe00) === 0xfc00) return true;
-
-  // Link-local fe80::/10 -> first hextet in fe80..febf.
-  if (firstHextet >= 0xfe80 && firstHextet <= 0xfebf) return true;
-
-  // Everything else is treated as global-unicast and allowed.
-  return false;
+  return !(firstHextet >= 0x2000 && firstHextet <= 0x3fff);
 }
 
 // Returns true when an IP literal (v4 or v6, no brackets) targets a

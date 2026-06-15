@@ -30,6 +30,11 @@ test('isSafeFetchUrl rejects loopback, private, and metadata targets', () => {
     'http://169.254.169.254/latest/meta-data/', // cloud metadata
     'http://[::1]/',
     'http://[::ffff:127.0.0.1]/',
+    'http://[fc00::1]/', // ULA
+    'http://[fd12:3456:789a::1]/', // ULA
+    'http://[fe80::1]/', // link-local
+    'http://[fec0::1]/', // site-local (deprecated) — must fail-closed via allowlist
+    'http://[ff02::1]/', // multicast — must fail-closed via allowlist
     'http://0.0.0.0/',
     'ftp://example.com/file', // non-http(s) protocol
     'file:///etc/passwd',
@@ -46,6 +51,8 @@ test('isSafeFetchUrl allows public http(s) URLs', () => {
     'http://example.com/file.pdf',
     'https://8.8.8.8/file.pdf',
     'https://172.32.0.1/file.pdf', // just outside 172.16.0.0/12
+    'https://[2606:4700::1111]/file.pdf', // global-unicast IPv6 (2000::/3)
+    'https://[2a00:1450:4001::1]/file.pdf', // global-unicast IPv6
   ];
 
   for (const url of allowed) {
