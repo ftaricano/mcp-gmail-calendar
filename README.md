@@ -14,7 +14,7 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - Multi-account state via `~/.config/gws/state.json`
 - JSON-first output for scripts, plus table/jsonl/tsv formats
 - Gmail list/search/read/send/reply/forward/delete/archive/labels/drafts/threads/attachments/read-status commands
-- Calendar list/upcoming/search/freebusy/create/update/delete/respond/quickadd/conference commands
+- Calendar list/upcoming/search/freebusy/create/update/delete/respond/quickadd/conference/instances commands, plus secondary calendar create/delete
 - Drive list/get/upload/download/mkdir/share commands
 - Docs get/export/create commands
 - Sheets spreadsheet and values get/update/append commands
@@ -191,6 +191,27 @@ gws cal calendars
 gws cal events upcoming --days 7 --limit 10
 gws cal events list --from 2026-05-01T00:00:00-03:00 --to 2026-05-08T00:00:00-03:00
 gws cal events search "planning" --limit 5
+```
+
+Secondary calendars (create is mutating, delete is destructive — both support `--dry-run`):
+
+```bash
+gws --dry-run cal calendars create --summary "Project X" --description "Tracking" --timezone America/Sao_Paulo
+gws cal calendars create --summary "Project X"
+gws --dry-run cal calendars delete CALENDAR_ID
+```
+
+Recurring event occurrences (read-only):
+
+```bash
+gws cal events instances RECURRING_EVENT_ID --from 2026-05-01T00:00:00-03:00 --to 2026-06-01T00:00:00-03:00 --limit 20
+```
+
+Each instance returned by `cal events instances` has its own `id`. To edit or delete a **single occurrence**, pass that instance id to the regular update/delete commands — the Calendar API treats each instance as an independent event:
+
+```bash
+gws cal events update INSTANCE_ID --summary "Moved this one only"
+gws cal events delete INSTANCE_ID
 ```
 
 Create and update events:

@@ -93,6 +93,9 @@ export function createFakeServices(
     quickAddEvent: async (_calendarId: string, text: string) => ({ summary: text, start: {}, end: {} }),
     searchEvents: async () => [],
     addConferenceToEvent: async (_calendarId: string, eventId: string) => ({ id: eventId, summary: 'Conference', start: {}, end: {} }),
+    getEventInstances: async (_calendarId: string, eventId: string) => [{ id: `${eventId}_1`, summary: 'Instance', start: {}, end: {} }],
+    createCalendar: async (summary: string) => ({ id: 'cal-1', summary }),
+    deleteCalendar: async () => undefined,
   };
 
   const drive: DriveServiceLike = {
