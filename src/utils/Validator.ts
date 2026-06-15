@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
+import dns from 'node:dns';
+import net from 'node:net';
 import { Logger } from './Logger.js';
 
 const logger = new Logger('Validator');
@@ -216,6 +218,64 @@ function isBlockedIpv4(host: string): boolean {
   return false;
 }
 
+// Block every IPv6 address that is not global-unicast. Fail-closed: any form we
+// cannot confidently classify as a routable public address is rejected. The host
+// must already be normalized (lowercase, no surrounding brackets).
+export function isBlockedIpv6(host: string): boolean {
+  // Sanity-check the literal form first. Anything net.isIPv6 cannot parse is
+  // not a usable IPv6 address here, so reject it (fail-closed).
+  if (!net.isIPv6(host)) return true;
+
+  // Mapped / embedded IPv4 forms. The WHATWG URL parser may keep the dotted
+  // form (::ffff:127.0.0.1) or normalize to hex (::ffff:7f00:1); handle both,
+  // and reject any other ::ffff embedding we don't expect.
+  if (host.startsWith('::ffff:')) {
+    const dotted = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+    if (dotted) return isBlockedIpv4(dotted[1]);
+
+    const hexMapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      return isBlockedIpv4(ipv4);
+    }
+
+    // Unrecognized ::ffff: shape -> fail-closed.
+    return true;
+  }
+
+  // Loopback and unspecified.
+  if (host === '::1' || host === '::') return true;
+
+  // IPv4-compatible / deprecated embeddings such as ::a.b.c.d or ::<hex>:<hex>
+  // (a single :: prefix with no ffff marker). These are deprecated and easy to
+  // abuse to reach internal IPv4 -> fail-closed.
+  if (host.startsWith('::') && host !== '::') return true;
+
+  // Classify by the first hextet for the remaining well-known non-global ranges.
+  const firstHextet = parseInt(host.split(':')[0] || '0', 16);
+
+  // ULA fc00::/7 -> first byte 0xfc or 0xfd.
+  if ((firstHextet & 0xfe00) === 0xfc00) return true;
+
+  // Link-local fe80::/10 -> first hextet in fe80..febf.
+  if (firstHextet >= 0xfe80 && firstHextet <= 0xfebf) return true;
+
+  // Everything else is treated as global-unicast and allowed.
+  return false;
+}
+
+// Returns true when an IP literal (v4 or v6, no brackets) targets a
+// loopback/private/link-local/non-global range that must not be fetched.
+export function isBlockedIp(host: string): boolean {
+  const ipType = net.isIP(host);
+  if (ipType === 4) return isBlockedIpv4(host);
+  if (ipType === 6) return isBlockedIpv6(host);
+  // Not an IP literal; caller must resolve hostnames before classifying.
+  return false;
+}
+
 export function isSafeFetchUrl(url: string): boolean {
   let parsed: URL;
   try {
@@ -238,24 +298,8 @@ export function isSafeFetchUrl(url: string): boolean {
     return false;
   }
 
-  // IPv6 loopback and IPv4-mapped IPv6 forms (e.g. ::1, ::ffff:127.0.0.1).
-  // The WHATWG URL parser normalizes embedded IPv4 to hex (::ffff:7f00:1),
-  // so handle both the dotted and the hex representations.
   if (host.includes(':')) {
-    if (host === '::1' || host === '::') return false; // loopback / unspecified
-
-    const dotted = host.match(/::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-    if (dotted && isBlockedIpv4(dotted[1])) return false;
-
-    const hexMapped = host.match(/::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (hexMapped) {
-      const hi = parseInt(hexMapped[1], 16);
-      const lo = parseInt(hexMapped[2], 16);
-      const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
-      if (isBlockedIpv4(ipv4)) return false;
-    }
-
-    return true;
+    return !isBlockedIpv6(host);
   }
 
   if (isBlockedIpv4(host)) {
@@ -263,6 +307,86 @@ export function isSafeFetchUrl(url: string): boolean {
   }
 
   return true;
+}
+
+export class UnsafeUrlError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsafeUrlError';
+  }
+}
+
+type DnsLookupAll = (
+  hostname: string,
+  options: { all: true },
+) => Promise<Array<{ address: string; family: number }>>;
+
+const defaultLookupAll: DnsLookupAll = (hostname, options) =>
+  dns.promises.lookup(hostname, options);
+
+/**
+ * Fail-closed SSRF guard for an outbound URL. Validates the scheme and host. For
+ * IP literals the range checks are applied directly; for hostnames every A/AAAA
+ * address returned by DNS is validated and the call is rejected if ANY resolved
+ * address falls in a blocked range. Throws UnsafeUrlError when unsafe.
+ *
+ * Returns the resolved addresses so callers can pin the connection to an
+ * already-validated IP (anti-rebinding).
+ */
+export async function assertSafePublicUrl(
+  url: string,
+  lookupAll: DnsLookupAll = defaultLookupAll,
+): Promise<{ host: string; addresses: string[] }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new UnsafeUrlError('Malformed URL');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new UnsafeUrlError(`Unsupported URL scheme: ${parsed.protocol}`);
+  }
+
+  let host = parsed.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
+
+  if (host === '' || host === 'localhost' || host.endsWith('.localhost')) {
+    throw new UnsafeUrlError('URL host is not allowed');
+  }
+
+  // IP literal: classify directly, no DNS.
+  const literalType = net.isIP(host);
+  if (literalType !== 0) {
+    if (isBlockedIp(host)) {
+      throw new UnsafeUrlError('URL host resolves to a blocked address range');
+    }
+    return { host, addresses: [host] };
+  }
+
+  // Hostname: resolve and validate EVERY address. Fail-closed if resolution
+  // fails or yields no addresses.
+  let resolved: Array<{ address: string; family: number }>;
+  try {
+    resolved = await lookupAll(host, { all: true });
+  } catch {
+    throw new UnsafeUrlError('Unable to resolve URL host');
+  }
+
+  if (!resolved || resolved.length === 0) {
+    throw new UnsafeUrlError('URL host did not resolve to any address');
+  }
+
+  const addresses = resolved.map((r) => r.address);
+  for (const address of addresses) {
+    if (isBlockedIp(address.toLowerCase())) {
+      throw new UnsafeUrlError('URL host resolves to a blocked address range');
+    }
+  }
+
+  return { host, addresses };
 }
 
 export function sanitizeFilename(filename: string): string {
