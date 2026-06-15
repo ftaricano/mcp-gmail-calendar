@@ -118,6 +118,21 @@ export function buildDocsCreatePayload(title: string, content?: string): {
   return content ? { title: normalizedTitle, content } : { title: normalizedTitle };
 }
 
+export function parseContactJson(value: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new ValidationCliError('Contact person JSON must be valid JSON.', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new ValidationCliError('Contact person JSON must be a JSON object.');
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export function buildSheetsValuesPayload(
   values: unknown,
   valueInputOption: 'RAW' | 'USER_ENTERED' = 'RAW',

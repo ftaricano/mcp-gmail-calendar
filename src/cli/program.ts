@@ -7,12 +7,13 @@ import {
   type AuthManagerLike,
   type CliServiceFactories,
   type TasksServiceLike,
+  type PeopleServiceLike,
   requireKnownAccount,
   resolveAccount,
   switchCurrentAccount,
 } from './context.js';
-import { buildDocsCreatePayload, buildSheetsValuesPayload, collectValues, normalizeDocsExportMimeType, parseEnumValue, parsePositiveInteger } from './parsers.js';
 import { buildDraftPayload, buildDraftPayloadPreview, buildMailPayload, buildMailPayloadPreview } from './mail-payloads.js';
+import { buildDocsCreatePayload, buildSheetsValuesPayload, collectValues, normalizeDocsExportMimeType, parseContactJson, parseEnumValue, parsePositiveInteger } from './parsers.js';
 import {
   type CliRuntime,
   type CreateProgramOptions,
@@ -21,7 +22,7 @@ import {
   runAction,
 } from './runtime.js';
 
-export type { AuthManagerLike, CliServiceFactories, CreateProgramOptions, TasksServiceLike };
+export type { AuthManagerLike, CliServiceFactories, CreateProgramOptions, TasksServiceLike, PeopleServiceLike };
 
 function globals(program: Command): { account?: string; dryRun?: boolean } {
   return program.optsWithGlobals() as { account?: string; dryRun?: boolean };
@@ -715,6 +716,47 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.delete', tasklistId, taskId } };
     await (await runtime.services.tasks(account)).deleteTask(tasklistId, taskId);
     return { account, deleted: taskId };
+  }));
+
+  const contacts = program.command('contacts').description('Google People / Contacts commands');
+  contacts.command('list').description('List contacts').option('--page-size <n>', 'Maximum results').option('--page-token <token>').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.people(account)).listContacts({ pageSize: opts.pageSize ? parsePositiveInteger(opts.pageSize, 'page size') : undefined, pageToken: opts.pageToken }) };
+  }));
+  contacts.command('search').argument('<query>').description('Search contacts').option('--page-size <n>', 'Maximum results').action((query, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.people(account)).searchContacts(query, { pageSize: opts.pageSize ? parsePositiveInteger(opts.pageSize, 'page size') : undefined }) };
+  }));
+  contacts.command('get').argument('<resourceName>').description('Get a contact').action((resourceName) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.people(account)).getContact(resourceName) };
+  }));
+  contacts.command('create').requiredOption('--json <json>', 'Person resource JSON').description('Create a contact').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const person = parseContactJson(opts.json);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'contacts.create', person } };
+    return { account, result: await (await runtime.services.people(account)).createContact(person) };
+  }));
+  contacts.command('update').argument('<resourceName>').requiredOption('--json <json>', 'Person resource JSON').requiredOption('--fields <fields>', 'Comma-separated updatePersonFields').description('Update a contact').action((resourceName, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const person = parseContactJson(opts.json);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'contacts.update', resourceName, updatePersonFields: opts.fields, person } };
+    return { account, result: await (await runtime.services.people(account)).updateContact(resourceName, person, opts.fields) };
+  }));
+  contacts.command('delete').argument('<resourceName>').description('Delete a contact').action((resourceName) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'contacts.delete', resourceName } };
+    await (await runtime.services.people(account)).deleteContact(resourceName);
+    return { account, deleted: resourceName };
+  }));
+  const contactGroups = contacts.command('groups').description('Manage contact groups');
+  contactGroups.command('list').description('List contact groups').option('--page-size <n>', 'Maximum results').option('--page-token <token>').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.people(account)).listContactGroups({ pageSize: opts.pageSize ? parsePositiveInteger(opts.pageSize, 'page size') : undefined, pageToken: opts.pageToken }) };
+  }));
+  contactGroups.command('get').argument('<resourceName>').description('Get a contact group').action((resourceName) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.people(account)).getContactGroup(resourceName) };
   }));
 
   program.command('doctor').description('Check local gws configuration').action(() => runAction(program, runtime, async () => ({

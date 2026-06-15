@@ -1879,3 +1879,106 @@ export const deleteTaskTool: Tool = {
     required: ['tasklistId', 'taskId'],
   },
 };
+
+// Google People / Contacts Tools
+export const listContactsTool: Tool = {
+  name: 'people_contacts_list',
+  description: 'List the authenticated account contacts (connections)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      pageSize: { type: 'integer', minimum: 1, description: 'Maximum number of contacts to return' },
+      pageToken: { type: 'string', description: 'Page token for pagination' },
+      personFields: { type: 'string', description: 'Comma-separated person fields (default names,emailAddresses,phoneNumbers)' },
+    },
+  },
+};
+
+export const searchContactsTool: Tool = {
+  name: 'people_contacts_search',
+  description: 'Search the authenticated account contacts',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Search query' },
+      pageSize: { type: 'integer', minimum: 1, description: 'Maximum number of results to return' },
+      readMask: { type: 'string', description: 'Comma-separated read mask (default names,emailAddresses,phoneNumbers)' },
+    },
+    required: ['query'],
+  },
+};
+
+export const getContactTool: Tool = {
+  name: 'people_contacts_get',
+  description: 'Get a single contact by resource name',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      resourceName: { type: 'string', description: 'Contact resource name, e.g. people/c123' },
+      personFields: { type: 'string', description: 'Comma-separated person fields (default names,emailAddresses,phoneNumbers)' },
+    },
+    required: ['resourceName'],
+  },
+};
+
+export const createContactTool: Tool = {
+  name: 'people_contacts_create',
+  description: 'Create a new contact',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      person: { type: 'object', description: 'People API Person resource (names, emailAddresses, phoneNumbers, ...)' },
+    },
+    required: ['person'],
+  },
+};
+
+export const updateContactTool: Tool = {
+  name: 'people_contacts_update',
+  description: 'Update an existing contact (etag handled automatically)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      resourceName: { type: 'string', description: 'Contact resource name, e.g. people/c123' },
+      person: { type: 'object', description: 'People API Person resource fields to update' },
+      updatePersonFields: { type: 'string', description: 'Comma-separated fields to update, e.g. names,emailAddresses' },
+    },
+    required: ['resourceName', 'person', 'updatePersonFields'],
+  },
+};
+
+export const deleteContactTool: Tool = {
+  name: 'people_contacts_delete',
+  description: 'Delete a contact',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      resourceName: { type: 'string', description: 'Contact resource name, e.g. people/c123' },
+    },
+    required: ['resourceName'],
+  },
+};
+
+export const listContactGroupsTool: Tool = {
+  name: 'people_groups_list',
+  description: 'List contact groups',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      pageSize: { type: 'integer', minimum: 1, description: 'Maximum number of groups to return' },
+      pageToken: { type: 'string', description: 'Page token for pagination' },
+    },
+  },
+};
+
+export const getContactGroupTool: Tool = {
+  name: 'people_groups_get',
+  description: 'Get a single contact group by resource name',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      resourceName: { type: 'string', description: 'Contact group resource name, e.g. contactGroups/abc' },
+    },
+    required: ['resourceName'],
+  },
+};
