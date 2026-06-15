@@ -22,6 +22,7 @@ import { DriveService } from './services/DriveService.js';
 import { DocsService } from './services/DocsService.js';
 import { SheetsService } from './services/SheetsService.js';
 import { TasksService } from './services/TasksService.js';
+import { PeopleService } from './services/PeopleService.js';
 import { Logger } from './utils/Logger.js';
 import { CacheManager } from './utils/CacheManager.js';
 import { validateEnvironment } from './utils/Validator.js';
@@ -38,6 +39,7 @@ class GmailCalendarMCPServer {
   private docsService: DocsService | null = null;
   private sheetsService: SheetsService | null = null;
   private tasksService: TasksService | null = null;
+  private peopleService: PeopleService | null = null;
   private logger: Logger;
   private cache: CacheManager;
   private currentAccount: string | null = null;
@@ -198,6 +200,16 @@ class GmailCalendarMCPServer {
       tools.completeTaskTool,
       tools.moveTaskTool,
       tools.deleteTaskTool,
+
+      // Google People / Contacts Tools
+      tools.listContactsTool,
+      tools.searchContactsTool,
+      tools.getContactTool,
+      tools.createContactTool,
+      tools.updateContactTool,
+      tools.deleteContactTool,
+      tools.listContactGroupsTool,
+      tools.getContactGroupTool,
     ];
   }
 
@@ -356,6 +368,11 @@ class GmailCalendarMCPServer {
         return await this.handleTasksTool(name, args);
       }
 
+      // Google People / Contacts tools
+      if (name.startsWith('people_')) {
+        return await this.handlePeopleTool(name, args);
+      }
+
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     } catch (error) {
       this.logger.error(`Error handling tool call ${name}:`, error);
@@ -441,6 +458,7 @@ class GmailCalendarMCPServer {
       this.docsService = null;
       this.sheetsService = null;
       this.tasksService = null;
+      this.peopleService = null;
     }
 
     return {
@@ -812,6 +830,31 @@ class GmailCalendarMCPServer {
     }
   }
 
+  private async handlePeopleTool(name: string, args: any): Promise<{ content: Array<TextContent> }> {
+    await this.ensureServicesInitialized();
+
+    switch (name) {
+      case 'people_contacts_list':
+        return await this.peopleService!.handleListContacts(args);
+      case 'people_contacts_search':
+        return await this.peopleService!.handleSearchContacts(args);
+      case 'people_contacts_get':
+        return await this.peopleService!.handleGetContact(args);
+      case 'people_contacts_create':
+        return await this.peopleService!.handleCreateContact(args);
+      case 'people_contacts_update':
+        return await this.peopleService!.handleUpdateContact(args);
+      case 'people_contacts_delete':
+        return await this.peopleService!.handleDeleteContact(args);
+      case 'people_groups_list':
+        return await this.peopleService!.handleListContactGroups(args);
+      case 'people_groups_get':
+        return await this.peopleService!.handleGetContactGroup(args);
+      default:
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown people tool: ${name}`);
+    }
+  }
+
   private async ensureAuthenticated(email: string): Promise<void> {
     const accounts = await this.authManager.listAccounts();
     const account = accounts.find(a => a.email === email);
@@ -827,7 +870,7 @@ class GmailCalendarMCPServer {
   }
 
   private async ensureServicesInitialized(): Promise<void> {
-    if (!this.gmailService || !this.calendarService || !this.driveService || !this.docsService || !this.sheetsService || !this.tasksService) {
+    if (!this.gmailService || !this.calendarService || !this.driveService || !this.docsService || !this.sheetsService || !this.tasksService || !this.peopleService) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         'Services not initialized. Please authenticate or switch to an account first.'
@@ -875,7 +918,8 @@ class GmailCalendarMCPServer {
     this.docsService = new DocsService(auth, this.cache, email);
     this.sheetsService = new SheetsService(auth, this.cache, email);
     this.tasksService = new TasksService(auth, this.cache, email);
-    
+    this.peopleService = new PeopleService(auth, this.cache, email);
+
     // Initialize template engine
     if (this.gmailService && this.gmailService.templateEngine) {
       await this.gmailService.templateEngine.initialize();

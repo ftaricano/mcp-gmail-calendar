@@ -19,6 +19,7 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - Docs get/export/create plus insert-text/replace-text/insert-table/insert-image/batch-update commands (CLI↔MCP parity via `documents.batchUpdate`)
 - Sheets get/values (get/update/append)/add-sheet/delete-sheet/rename-sheet/clear/batch-update commands
 - Tasks task-list and task list/get/create/update/complete/move/delete commands
+- Contacts (People) list/search/get/create/update/delete and contact-group list/get commands
 - Existing MCP toolset for Gmail, Calendar, attachments, templates, and Sheets
 
 ## Install
@@ -42,10 +43,13 @@ Prerequisites:
   - Google Docs API
   - Google Sheets API
   - Google Tasks API
+  - Google People API
 
 If you already authenticated before Drive/Docs/Sheets support existed, run `gws auth login --account you@example.com --type workspace` again so Google grants the expanded OAuth scopes.
 
 > **⚠️ Tasks requires re-consent.** Google Tasks adds a brand-new OAuth scope (`https://www.googleapis.com/auth/tasks`). Any account authenticated before Tasks support existed must re-run `gws auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Tasks call returns HTTP 403. `gws auth login` detects when a stored account is missing a current scope and re-triggers the Google consent screen automatically (it is no longer a no-op for already-known accounts).
+
+> **⚠️ Contacts requires re-consent.** Google People / Contacts adds a brand-new OAuth scope (`https://www.googleapis.com/auth/contacts`). Any account authenticated before Contacts support existed must re-run `gws auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Contacts call returns HTTP 403. As with Tasks, `gws auth login` auto-detects the missing scope and re-triggers the Google consent screen.
 
 Configure environment:
 
@@ -325,6 +329,23 @@ gws --dry-run tasks delete LIST_ID TASK_ID
 
 Allowed task status values: `needsAction`, `completed`.
 
+## Contacts examples
+
+> Contacts needs the `contacts` OAuth scope. If you authenticated before Contacts support existed, re-run `gws auth login --account you@example.com --type workspace` first, otherwise calls return 403.
+
+```bash
+gws contacts list --page-size 50
+gws contacts search "Ada"
+gws contacts get people/c123
+gws --dry-run contacts create --json '{"names":[{"givenName":"Ada","familyName":"Lovelace"}],"emailAddresses":[{"value":"ada@example.com"}]}'
+gws --dry-run contacts update people/c123 --json '{"names":[{"givenName":"Grace"}]}' --fields names
+gws --dry-run contacts delete people/c123
+gws contacts groups list
+gws contacts groups get contactGroups/abc
+```
+
+The `--json` payload is a [People API `Person` resource](https://developers.google.com/people/api/rest/v1/people#Person). `contacts update` resolves the required `etag` automatically (it reuses `etag` from the payload when present, otherwise fetches the current one before patching).
+
 ## Output formats
 
 Default output is JSON and stdout is kept data-only for successful commands.
@@ -404,6 +425,7 @@ tools): both cover values get/update/append, structural mutations (add/delete/re
 sheet), range clears, and raw `batchUpdate` requests. Use `--value-input-option
 USER_ENTERED` (CLI) or `valueInputOption: "USER_ENTERED"` (MCP) to write formulas.
 - Tasks: `tasks_lists_list`, `tasks_lists_get`, `tasks_lists_create`, `tasks_lists_update`, `tasks_lists_delete`, `tasks_list`, `tasks_get`, `tasks_create`, `tasks_update`, `tasks_complete`, `tasks_move`, `tasks_delete`
+- Contacts (People): `people_contacts_list`, `people_contacts_search`, `people_contacts_get`, `people_contacts_create`, `people_contacts_update`, `people_contacts_delete`, `people_groups_list`, `people_groups_get`
 
 ## Development
 
