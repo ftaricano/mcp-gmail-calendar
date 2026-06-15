@@ -134,6 +134,11 @@ export function createFakeServices(
     getValues: async (_spreadsheetId: string, range: string) => ({ range, values: [['a']] }),
     updateValues: async (_spreadsheetId: string, range: string, values) => ({ range, values, updatedCells: values.flat().length }),
     appendValues: async (_spreadsheetId: string, range: string, values) => ({ range, values, updates: { updatedRows: values.length } }),
+    batchUpdate: async (spreadsheetId: string, requests) => ({ spreadsheetId, replies: requests.map(() => ({})) }),
+    addSheet: async (spreadsheetId: string, title: string) => ({ spreadsheetId, replies: [{ addSheet: { properties: { title } } }] }),
+    deleteSheet: async (spreadsheetId: string, sheetId: number) => ({ spreadsheetId, sheetId, replies: [{}] }),
+    renameSheet: async (spreadsheetId: string, sheetId: number, title: string) => ({ spreadsheetId, sheetId, title, replies: [{}] }),
+    clearValues: async (spreadsheetId: string, range: string) => ({ spreadsheetId, clearedRange: range }),
   };
 
   return {

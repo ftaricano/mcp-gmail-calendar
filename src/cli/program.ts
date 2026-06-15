@@ -1,5 +1,7 @@
 import { Command } from 'commander';
+import { sheets_v4 } from 'googleapis';
 import type { CalendarEvent } from '../services/CalendarService.js';
+import { ValidationCliError } from './errors.js';
 import { buildCalendarEventPayload, buildFreeBusyPayload, ensureCreatableEvent, materializeConferenceRequest } from './calendar-payloads.js';
 import {
   type AuthManagerLike,
@@ -10,7 +12,6 @@ import {
 } from './context.js';
 import { buildDocsCreatePayload, buildSheetsValuesPayload, collectValues, normalizeDocsExportMimeType, parseEnumValue, parsePositiveInteger } from './parsers.js';
 import { buildDraftPayload, buildDraftPayloadPreview, buildMailPayload, buildMailPayloadPreview } from './mail-payloads.js';
-import { ValidationCliError } from './errors.js';
 import {
   type CliRuntime,
   type CreateProgramOptions,
@@ -27,6 +28,29 @@ function globals(program: Command): { account?: string; dryRun?: boolean } {
 
 async function currentAccount(program: Command, runtime: CliRuntime): Promise<string> {
   return resolveAccount(runtime.authManager, globals(program).account, runtime.loadState);
+}
+
+function parseSheetId(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new ValidationCliError('sheet id must be a non-negative integer.');
+  }
+  return parsed;
+}
+
+function parseBatchRequests(value: string): sheets_v4.Schema$Request[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new ValidationCliError('requests must be valid JSON.', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (!Array.isArray(parsed)) {
+    throw new ValidationCliError('requests must be a JSON array of Sheets API Request objects.');
+  }
+  return parsed as sheets_v4.Schema$Request[];
 }
 
 async function defaultTimezone(runtime: CliRuntime, explicit?: string): Promise<string> {
@@ -596,6 +620,36 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     const payload = buildSheetsValuesPayload(JSON.parse(opts.values), valueInputOption);
     if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.append', spreadsheetId, range: opts.range, payload } };
     return { account, result: await (await runtime.services.sheets(account)).appendValues(spreadsheetId, opts.range, payload.values, payload.valueInputOption) };
+  }));
+  sheets.command('add-sheet').argument('<spreadsheetId>').requiredOption('--title <title>').option('--rows <n>').option('--columns <n>').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const rows = opts.rows !== undefined ? parsePositiveInteger(opts.rows, 'rows') : undefined;
+    const columns = opts.columns !== undefined ? parsePositiveInteger(opts.columns, 'columns') : undefined;
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.addSheet', spreadsheetId, title: opts.title, rows, columns } };
+    return { account, result: await (await runtime.services.sheets(account)).addSheet(spreadsheetId, opts.title, { rows, columns }) };
+  }));
+  sheets.command('delete-sheet').argument('<spreadsheetId>').requiredOption('--sheet-id <n>').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const sheetId = parseSheetId(opts.sheetId);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.deleteSheet', spreadsheetId, sheetId } };
+    return { account, result: await (await runtime.services.sheets(account)).deleteSheet(spreadsheetId, sheetId) };
+  }));
+  sheets.command('rename-sheet').argument('<spreadsheetId>').requiredOption('--sheet-id <n>').requiredOption('--title <title>').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const sheetId = parseSheetId(opts.sheetId);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.renameSheet', spreadsheetId, sheetId, title: opts.title } };
+    return { account, result: await (await runtime.services.sheets(account)).renameSheet(spreadsheetId, sheetId, opts.title) };
+  }));
+  sheets.command('clear').argument('<spreadsheetId>').requiredOption('--range <range>').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.clear', spreadsheetId, range: opts.range } };
+    return { account, result: await (await runtime.services.sheets(account)).clearValues(spreadsheetId, opts.range) };
+  }));
+  sheets.command('batch-update').argument('<spreadsheetId>').requiredOption('--requests <json>').action((spreadsheetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const requests = parseBatchRequests(opts.requests);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.batchUpdate', spreadsheetId, requests } };
+    return { account, result: await (await runtime.services.sheets(account)).batchUpdate(spreadsheetId, requests) };
   }));
 
   program.command('doctor').description('Check local gws configuration').action(() => runAction(program, runtime, async () => ({

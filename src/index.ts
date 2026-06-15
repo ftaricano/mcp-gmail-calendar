@@ -20,6 +20,7 @@ import { GmailService } from './services/GmailService.js';
 import { CalendarService } from './services/CalendarService.js';
 import { DriveService } from './services/DriveService.js';
 import { DocsService } from './services/DocsService.js';
+import { SheetsService } from './services/SheetsService.js';
 import { Logger } from './utils/Logger.js';
 import { CacheManager } from './utils/CacheManager.js';
 import { validateEnvironment } from './utils/Validator.js';
@@ -34,6 +35,7 @@ class GmailCalendarMCPServer {
   private calendarService: CalendarService | null = null;
   private driveService: DriveService | null = null;
   private docsService: DocsService | null = null;
+  private sheetsService: SheetsService | null = null;
   private logger: Logger;
   private cache: CacheManager;
   private currentAccount: string | null = null;
@@ -171,6 +173,16 @@ class GmailCalendarMCPServer {
       tools.docsReplaceTextTool,
       tools.docsInsertTableTool,
       tools.docsInsertImageTool,
+      // Google Sheets Tools
+      tools.sheetsGetTool,
+      tools.sheetsValuesGetTool,
+      tools.sheetsValuesUpdateTool,
+      tools.sheetsValuesAppendTool,
+      tools.sheetsBatchUpdateTool,
+      tools.sheetsAddSheetTool,
+      tools.sheetsDeleteSheetTool,
+      tools.sheetsRenameSheetTool,
+      tools.sheetsClearTool,
     ];
   }
 
@@ -319,6 +331,11 @@ class GmailCalendarMCPServer {
         return await this.handleDocsTool(name, args);
       }
 
+      // Google Sheets tools
+      if (name.startsWith('sheets_')) {
+        return await this.handleSheetsTool(name, args);
+      }
+
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     } catch (error) {
       this.logger.error(`Error handling tool call ${name}:`, error);
@@ -402,6 +419,7 @@ class GmailCalendarMCPServer {
       this.calendarService = null;
       this.driveService = null;
       this.docsService = null;
+      this.sheetsService = null;
     }
 
     return {
@@ -704,6 +722,42 @@ class GmailCalendarMCPServer {
     }
   }
 
+  private async handleSheetsTool(name: string, args: any): Promise<{ content: Array<TextContent> }> {
+    await this.ensureServicesInitialized();
+
+    switch (name) {
+      case 'sheets_get':
+        return await this.sheetsService!.handleGetSpreadsheet(args);
+
+      case 'sheets_values_get':
+        return await this.sheetsService!.handleGetValues(args);
+
+      case 'sheets_values_update':
+        return await this.sheetsService!.handleUpdateValues(args);
+
+      case 'sheets_values_append':
+        return await this.sheetsService!.handleAppendValues(args);
+
+      case 'sheets_batch_update':
+        return await this.sheetsService!.handleBatchUpdate(args);
+
+      case 'sheets_add_sheet':
+        return await this.sheetsService!.handleAddSheet(args);
+
+      case 'sheets_delete_sheet':
+        return await this.sheetsService!.handleDeleteSheet(args);
+
+      case 'sheets_rename_sheet':
+        return await this.sheetsService!.handleRenameSheet(args);
+
+      case 'sheets_clear':
+        return await this.sheetsService!.handleClearValues(args);
+
+      default:
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown sheets tool: ${name}`);
+    }
+  }
+
   private async ensureAuthenticated(email: string): Promise<void> {
     const accounts = await this.authManager.listAccounts();
     const account = accounts.find(a => a.email === email);
@@ -719,7 +773,7 @@ class GmailCalendarMCPServer {
   }
 
   private async ensureServicesInitialized(): Promise<void> {
-    if (!this.gmailService || !this.calendarService || !this.driveService || !this.docsService) {
+    if (!this.gmailService || !this.calendarService || !this.driveService || !this.docsService || !this.sheetsService) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         'Services not initialized. Please authenticate or switch to an account first.'
@@ -765,6 +819,7 @@ class GmailCalendarMCPServer {
     this.calendarService = new CalendarService(auth, this.cache, email);
     this.driveService = new DriveService(auth, this.cache, email);
     this.docsService = new DocsService(auth, this.cache, email);
+    this.sheetsService = new SheetsService(auth, this.cache, email);
     
     // Initialize template engine
     if (this.gmailService && this.gmailService.templateEngine) {

@@ -1571,3 +1571,147 @@ export const docsInsertImageTool: Tool = {
     required: ['documentId', 'uri'],
   },
 };
+// Google Sheets Tools
+export const sheetsGetTool: Tool = {
+  name: 'sheets_get',
+  description: 'Get a Google Spreadsheet (metadata, sheets, properties)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+    },
+    required: ['spreadsheetId'],
+  },
+};
+
+export const sheetsValuesGetTool: Tool = {
+  name: 'sheets_values_get',
+  description: 'Read values from an A1 range in a spreadsheet',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      range: { type: 'string', description: 'A1 notation range (e.g., "Sheet1!A1:C10")' },
+    },
+    required: ['spreadsheetId', 'range'],
+  },
+};
+
+export const sheetsValuesUpdateTool: Tool = {
+  name: 'sheets_values_update',
+  description: 'Write values to an A1 range. Use USER_ENTERED to evaluate formulas.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      range: { type: 'string', description: 'A1 notation range' },
+      values: {
+        type: 'array',
+        items: { type: 'array', items: {} },
+        description: 'Matrix of cell values (rows of columns)',
+      },
+      valueInputOption: {
+        type: 'string',
+        enum: ['RAW', 'USER_ENTERED'],
+        default: 'RAW',
+        description: 'RAW stores literal strings; USER_ENTERED parses numbers/formulas',
+      },
+    },
+    required: ['spreadsheetId', 'range', 'values'],
+  },
+};
+
+export const sheetsValuesAppendTool: Tool = {
+  name: 'sheets_values_append',
+  description: 'Append rows after the last row of a range. Use USER_ENTERED for formulas.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      range: { type: 'string', description: 'A1 notation range' },
+      values: {
+        type: 'array',
+        items: { type: 'array', items: {} },
+        description: 'Matrix of cell values to append',
+      },
+      valueInputOption: {
+        type: 'string',
+        enum: ['RAW', 'USER_ENTERED'],
+        default: 'RAW',
+      },
+    },
+    required: ['spreadsheetId', 'range', 'values'],
+  },
+};
+
+export const sheetsBatchUpdateTool: Tool = {
+  name: 'sheets_batch_update',
+  description: 'Run raw spreadsheets.batchUpdate requests (formatting, data validation, conditional formatting, etc.)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      requests: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'Array of Sheets API Request objects',
+      },
+    },
+    required: ['spreadsheetId', 'requests'],
+  },
+};
+
+export const sheetsAddSheetTool: Tool = {
+  name: 'sheets_add_sheet',
+  description: 'Add a new sheet (tab) to a spreadsheet',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      title: { type: 'string', description: 'Title of the new sheet' },
+      rows: { type: 'integer', minimum: 1, description: 'Optional row count' },
+      columns: { type: 'integer', minimum: 1, description: 'Optional column count' },
+    },
+    required: ['spreadsheetId', 'title'],
+  },
+};
+
+export const sheetsDeleteSheetTool: Tool = {
+  name: 'sheets_delete_sheet',
+  description: 'Delete a sheet (tab) from a spreadsheet. Destructive.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      sheetId: { type: 'integer', minimum: 0, description: 'Numeric sheet ID to delete' },
+    },
+    required: ['spreadsheetId', 'sheetId'],
+  },
+};
+
+export const sheetsRenameSheetTool: Tool = {
+  name: 'sheets_rename_sheet',
+  description: 'Rename a sheet (tab) in a spreadsheet',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      sheetId: { type: 'integer', minimum: 0, description: 'Numeric sheet ID to rename' },
+      title: { type: 'string', description: 'New sheet title' },
+    },
+    required: ['spreadsheetId', 'sheetId', 'title'],
+  },
+};
+
+export const sheetsClearTool: Tool = {
+  name: 'sheets_clear',
+  description: 'Clear values from an A1 range (keeps formatting)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      spreadsheetId: { type: 'string', description: 'Spreadsheet ID' },
+      range: { type: 'string', description: 'A1 notation range to clear' },
+    },
+    required: ['spreadsheetId', 'range'],
+  },
+};

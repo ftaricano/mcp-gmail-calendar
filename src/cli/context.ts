@@ -1,3 +1,4 @@
+import { sheets_v4 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { GoogleAuthManager } from '../auth/GoogleAuthManager.js';
 import { CacheManager } from '../utils/CacheManager.js';
@@ -156,6 +157,11 @@ export interface SheetsServiceLike {
     values: string[][],
     valueInputOption?: 'RAW' | 'USER_ENTERED',
   ): Promise<unknown>;
+  batchUpdate(spreadsheetId: string, requests: sheets_v4.Schema$Request[]): Promise<unknown>;
+  addSheet(spreadsheetId: string, title: string, opts?: { rows?: number; columns?: number }): Promise<unknown>;
+  deleteSheet(spreadsheetId: string, sheetId: number): Promise<unknown>;
+  renameSheet(spreadsheetId: string, sheetId: number, title: string): Promise<unknown>;
+  clearValues(spreadsheetId: string, range: string): Promise<unknown>;
 }
 
 export interface CliServiceFactories {
