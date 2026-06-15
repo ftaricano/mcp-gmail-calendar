@@ -17,8 +17,8 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - Calendar list/upcoming/search/freebusy/create/update/delete/respond/quickadd/conference/instances commands, plus secondary calendar create/delete
 - Drive list/get/upload/download/mkdir/share/trash/restore/copy/batch-delete/revisions/shared-drives/shortcut commands (full CLI↔MCP parity)
 - Docs get/export/create plus insert-text/replace-text/insert-table/insert-image/batch-update commands (CLI↔MCP parity via `documents.batchUpdate`)
-- Sheets spreadsheet and values get/update/append commands
-- Existing MCP toolset for Gmail, Calendar, attachments, and templates
+- Sheets get/values (get/update/append)/add-sheet/delete-sheet/rename-sheet/clear/batch-update commands
+- Existing MCP toolset for Gmail, Calendar, attachments, templates, and Sheets
 
 ## Install
 
@@ -283,9 +283,22 @@ gws sheets get SPREADSHEET_ID
 gws sheets values get SPREADSHEET_ID "Sheet1!A1:C10"
 gws --dry-run sheets values update SPREADSHEET_ID "Sheet1!A1:B2" --values '[["a","b"],["c","d"]]' --value-input-option USER_ENTERED
 gws sheets values append SPREADSHEET_ID "Sheet1!A:B" --values '[["new","row"]]'
+gws --dry-run sheets add-sheet SPREADSHEET_ID --title "Q3" --rows 200 --columns 12
+gws --dry-run sheets rename-sheet SPREADSHEET_ID --sheet-id 0 --title "Summary"
+gws --dry-run sheets delete-sheet SPREADSHEET_ID --sheet-id 123456
+gws --dry-run sheets clear SPREADSHEET_ID --range "Sheet1!A1:Z100"
+gws --dry-run sheets batch-update SPREADSHEET_ID --requests '[{"repeatCell":{"range":{"sheetId":0},"cell":{"userEnteredFormat":{"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold"}}]'
 ```
 
 Allowed value input options: `RAW`, `USER_ENTERED`.
+
+Formulas are written through the regular `values update`/`values append` commands with
+`--value-input-option USER_ENTERED`, which tells Sheets to parse formulas and numbers
+instead of storing literal strings. `add-sheet`, `delete-sheet`, `rename-sheet`, `clear`,
+and `batch-update` are mutating and support `--dry-run`, returning a
+`{ "dryRun": true, "would": ... }` envelope. `batch-update` takes a raw JSON array of
+Sheets API `Request` objects (formatting, data validation, conditional formatting, etc.);
+malformed JSON fails with a clear `requests must be valid JSON` validation error.
 
 ## Output formats
 
@@ -353,12 +366,18 @@ node /absolute/path/to/mcp-gmail-calendar/dist/index.js
 - Drive: `drive_list`, `drive_get`, `drive_upload`, `drive_download`, `drive_mkdir`, `drive_share`, `drive_trash`, `drive_restore`, `drive_copy`, `drive_batch_delete`, `drive_revisions`, `drive_shared_drives`, `drive_shortcut`
 - Templates: list, render, create
 - Docs: `docs_get`, `docs_create`, `docs_export`, `docs_batch_update`, `docs_insert_text`, `docs_replace_text`, `docs_insert_table`, `docs_insert_image`
+- Sheets: `sheets_get`, `sheets_values_get`, `sheets_values_update`, `sheets_values_append`, `sheets_batch_update`, `sheets_add_sheet`, `sheets_delete_sheet`, `sheets_rename_sheet`, `sheets_clear`
 
 Docs has full CLI↔MCP parity: every `gws docs <command>` maps to a `docs_*` MCP tool with the same
 underlying service method. Mutating MCP tools validate arguments with zod and reject malformed input
 with `InvalidParams`; the CLI exposes the same operations behind `--dry-run`.
 
 Drive now has CLI↔MCP parity: every `gws drive` command has a matching `drive_*` MCP tool. As in the CLI, `drive_trash` and `drive_batch_delete` move files to the trash (recoverable) instead of deleting permanently.
+
+The Sheets surface is at parity between the CLI (`gws sheets ...`) and MCP (`sheets_*`
+tools): both cover values get/update/append, structural mutations (add/delete/rename
+sheet), range clears, and raw `batchUpdate` requests. Use `--value-input-option
+USER_ENTERED` (CLI) or `valueInputOption: "USER_ENTERED"` (MCP) to write formulas.
 
 ## Development
 
