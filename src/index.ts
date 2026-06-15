@@ -117,7 +117,6 @@ class GmailCalendarMCPServer {
       tools.getThreadTool,
       tools.modifyThreadTool,
       tools.trashThreadTool,
-      tools.deleteThreadTool,
 
       // Attachment Tools
       tools.listAttachmentsTool,
@@ -487,9 +486,6 @@ class GmailCalendarMCPServer {
 
       case 'email_thread_trash':
         return await this.gmailService!.handleTrashThread(args);
-
-      case 'email_thread_delete':
-        return await this.gmailService!.handleDeleteThread(args);
 
       case 'email_list_attachments':
       case 'gmail_list_attachments':

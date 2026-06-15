@@ -130,8 +130,7 @@ Archive and delete:
 
 ```bash
 gws mail archive MESSAGE_ID
-gws mail delete MESSAGE_ID              # move to trash
-gws mail delete MESSAGE_ID --permanent  # permanently delete
+gws mail delete MESSAGE_ID  # move to trash
 ```
 
 Drafts:
@@ -157,7 +156,6 @@ Dry-run destructive or mutating actions:
 
 ```bash
 gws --dry-run mail delete MESSAGE_ID
-gws --dry-run mail delete MESSAGE_ID --permanent
 gws --dry-run mail archive MESSAGE_ID
 gws --dry-run mail drafts create --to client@example.com --subject "Proposal" --body "Draft body"
 gws --dry-run mail drafts send DRAFT_ID

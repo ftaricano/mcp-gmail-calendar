@@ -54,7 +54,6 @@ export interface GmailServiceLike {
     savePath: string,
   ): Promise<{ path: string; filename?: string; size: number }>;
   archiveEmail(messageId: string): Promise<void>;
-  deleteEmailPermanently(messageId: string): Promise<void>;
   listDrafts(options?: DraftListOptions): Promise<{ drafts: unknown[]; nextPageToken?: string }>;
   getDraft(draftId: string): Promise<unknown>;
   createDraft(options: DraftWriteOptions): Promise<string>;
@@ -68,7 +67,6 @@ export interface GmailServiceLike {
     options: { addLabelIds?: string[]; removeLabelIds?: string[] },
   ): Promise<unknown>;
   trashThread(threadId: string): Promise<void>;
-  deleteThread(threadId: string): Promise<void>;
 }
 
 export interface CalendarServiceLike {

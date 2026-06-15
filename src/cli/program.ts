@@ -9,7 +9,8 @@ import {
   switchCurrentAccount,
 } from './context.js';
 import { buildDocsCreatePayload, buildSheetsValuesPayload, collectValues, normalizeDocsExportMimeType, parseEnumValue, parsePositiveInteger } from './parsers.js';
-import { buildMailPayload, buildMailPayloadPreview } from './mail-payloads.js';
+import { buildDraftPayload, buildDraftPayloadPreview, buildMailPayload, buildMailPayloadPreview } from './mail-payloads.js';
+import { ValidationCliError } from './errors.js';
 import {
   type CliRuntime,
   type CreateProgramOptions,
@@ -184,14 +185,11 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.forward', messageId, payload } };
     return { account, messageId: await (await runtime.services.gmail(account)).forwardEmail(messageId, payload) };
   }));
-  mail.command('delete').argument('<messageId>').option('--permanent', 'Permanently delete instead of moving to trash').action((messageId, opts) => runAction(program, runtime, async () => {
+  mail.command('delete').description('Move a message to trash').argument('<messageId>').action((messageId) => runAction(program, runtime, async () => {
     const account = await currentAccount(program, runtime);
-    const permanent = Boolean(opts.permanent);
-    if (globals(program).dryRun) return { account, dryRun: true, would: { action: permanent ? 'mail.delete.permanent' : 'mail.delete', messageId, permanent } };
-    const gmail = await runtime.services.gmail(account);
-    if (permanent) await gmail.deleteEmailPermanently(messageId);
-    else await gmail.deleteEmail(messageId);
-    return { account, deleted: messageId, permanent };
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.delete', messageId } };
+    await (await runtime.services.gmail(account)).deleteEmail(messageId);
+    return { account, deleted: messageId };
   }));
   mail.command('archive').description('Archive a message (remove from inbox)').argument('<messageId>').action((messageId) => runAction(program, runtime, async () => {
     const account = await currentAccount(program, runtime);
@@ -277,17 +275,17 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
   addMailComposeOptions(drafts.command('create').description('Create a draft')).action((opts) => runAction(program, runtime, async () => {
     const account = await currentAccount(program, runtime);
     if (globals(program).dryRun) {
-      return { account, dryRun: true, would: { action: 'mail.drafts.create', payload: await buildMailPayloadPreview(opts, runtime.readStdin) } };
+      return { account, dryRun: true, would: { action: 'mail.drafts.create', payload: await buildDraftPayloadPreview(opts, runtime.readStdin) } };
     }
-    const draftId = await (await runtime.services.gmail(account)).createDraft(await buildMailPayload(opts, runtime.readStdin));
+    const draftId = await (await runtime.services.gmail(account)).createDraft(await buildDraftPayload(opts, runtime.readStdin));
     return { account, draftId };
   }));
   addMailComposeOptions(drafts.command('update').description('Update a draft').argument('<draftId>')).action((draftId, opts) => runAction(program, runtime, async () => {
     const account = await currentAccount(program, runtime);
     if (globals(program).dryRun) {
-      return { account, dryRun: true, would: { action: 'mail.drafts.update', draftId, payload: await buildMailPayloadPreview(opts, runtime.readStdin) } };
+      return { account, dryRun: true, would: { action: 'mail.drafts.update', draftId, payload: await buildDraftPayloadPreview(opts, runtime.readStdin) } };
     }
-    return { account, draftId: await (await runtime.services.gmail(account)).updateDraft(draftId, await buildMailPayload(opts, runtime.readStdin)) };
+    return { account, draftId: await (await runtime.services.gmail(account)).updateDraft(draftId, await buildDraftPayload(opts, runtime.readStdin)) };
   }));
   drafts.command('send').argument('<draftId>').action((draftId) => runAction(program, runtime, async () => {
     const account = await currentAccount(program, runtime);
@@ -328,6 +326,9 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
       const account = await currentAccount(program, runtime);
       const addLabelIds = opts.addLabel?.length ? opts.addLabel : undefined;
       const removeLabelIds = opts.removeLabel?.length ? opts.removeLabel : undefined;
+      if (!addLabelIds && !removeLabelIds) {
+        throw new ValidationCliError('Provide at least one --add-label or --remove-label.');
+      }
       if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.threads.modify', threadId, addLabelIds, removeLabelIds } };
       return { account, thread: await (await runtime.services.gmail(account)).modifyThread(threadId, { addLabelIds, removeLabelIds }) };
     }));
@@ -336,12 +337,6 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.threads.trash', threadId } };
     await (await runtime.services.gmail(account)).trashThread(threadId);
     return { account, trashed: threadId };
-  }));
-  threads.command('delete').description('Permanently delete an entire thread (destructive)').argument('<threadId>').action((threadId) => runAction(program, runtime, async () => {
-    const account = await currentAccount(program, runtime);
-    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'mail.threads.delete', threadId } };
-    await (await runtime.services.gmail(account)).deleteThread(threadId);
-    return { account, deleted: threadId };
   }));
 
   const cal = program.command('cal').alias('calendar').description('Google Calendar commands');

@@ -54,48 +54,49 @@ test('mail drafts update dry-run previews payload without calling service', asyn
   });
 });
 
-test('mail threads delete dry-run previews action without calling service', async () => {
-  let deleteCalls = 0;
+test('mail drafts create dry-run without to/subject previews WIP envelope', async () => {
+  let createCalls = 0;
   const result = await runCli(createProgram, [
     '--account', 'me@example.com',
     '--dry-run',
-    'mail', 'threads', 'delete', 't-9',
+    'mail', 'drafts', 'create',
+    '--body', 'WIP body',
   ], {
     services: {
       gmail: async () => ({
-        deleteThread: async () => { deleteCalls += 1; },
+        createDraft: async () => { createCalls += 1; return 'draft-1'; },
       }) as never,
     },
   });
 
   assert.equal(result.exitCode, 0);
-  assert.equal(deleteCalls, 0);
+  assert.equal(createCalls, 0);
   assert.deepEqual(JSON.parse(result.stdout), {
     account: 'me@example.com',
     dryRun: true,
-    would: { action: 'mail.threads.delete', threadId: 't-9' },
+    would: {
+      action: 'mail.drafts.create',
+      payload: { body: 'WIP body' },
+    },
   });
 });
 
-test('mail threads delete without dry-run calls deleteThread', async () => {
-  let deleteCalls = 0;
+test('mail threads modify without labels fails validation and does not call service', async () => {
+  let modifyCalls = 0;
   const result = await runCli(createProgram, [
     '--account', 'me@example.com',
-    'mail', 'threads', 'delete', 't-10',
+    'mail', 'threads', 'modify', 't-1',
   ], {
     services: {
       gmail: async () => ({
-        deleteThread: async () => { deleteCalls += 1; },
+        modifyThread: async () => { modifyCalls += 1; return { id: 't-1' }; },
       }) as never,
     },
   });
 
-  assert.equal(result.exitCode, 0);
-  assert.equal(deleteCalls, 1);
-  assert.deepEqual(JSON.parse(result.stdout), {
-    account: 'me@example.com',
-    deleted: 't-10',
-  });
+  assert.notEqual(result.exitCode, 0);
+  assert.equal(modifyCalls, 0);
+  assert.match(result.stderr, /add-label|remove-label/);
 });
 
 test('mail drafts list returns items envelope', async () => {
@@ -147,25 +148,23 @@ test('mail archive dry-run previews action', async () => {
   });
 });
 
-test('mail delete --permanent dry-run reflects permanent action', async () => {
+test('mail delete dry-run reflects trash action', async () => {
   const result = await runCli(createProgram, [
     '--account', 'me@example.com',
     '--dry-run',
     'mail', 'delete', 'm-2',
-    '--permanent',
   ]);
 
   assert.equal(result.exitCode, 0);
   assert.deepEqual(JSON.parse(result.stdout), {
     account: 'me@example.com',
     dryRun: true,
-    would: { action: 'mail.delete.permanent', messageId: 'm-2', permanent: true },
+    would: { action: 'mail.delete', messageId: 'm-2' },
   });
 });
 
-test('mail delete without permanent calls trash path', async () => {
+test('mail delete calls trash path', async () => {
   let trashCalls = 0;
-  let permanentCalls = 0;
   const result = await runCli(createProgram, [
     '--account', 'me@example.com',
     'mail', 'delete', 'm-3',
@@ -173,17 +172,14 @@ test('mail delete without permanent calls trash path', async () => {
     services: {
       gmail: async () => ({
         deleteEmail: async () => { trashCalls += 1; },
-        deleteEmailPermanently: async () => { permanentCalls += 1; },
       }) as never,
     },
   });
 
   assert.equal(result.exitCode, 0);
   assert.equal(trashCalls, 1);
-  assert.equal(permanentCalls, 0);
   assert.deepEqual(JSON.parse(result.stdout), {
     account: 'me@example.com',
     deleted: 'm-3',
-    permanent: false,
   });
 });

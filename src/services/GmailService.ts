@@ -98,7 +98,15 @@ const attachmentSchema = z.object({
   filename: z.string().min(1, 'attachment.filename is required'),
   content: z.union([z.string(), z.instanceof(Buffer)]),
 }).passthrough();
+// Content/template fields consumed by buildEmailMessage and prepareSendContent.
+const contentFields = {
+  body: z.string().optional(),
+  bodyHtml: z.string().optional(),
+  templateId: z.string().min(1).optional(),
+  templateData: z.record(z.unknown()).optional(),
+};
 const composeFields = {
+  ...contentFields,
   cc: addressField.optional(),
   bcc: addressField.optional(),
   replyTo: z.string().min(1).optional(),
@@ -109,11 +117,13 @@ const composeFields = {
 const sendEmailSchema = z.object({
   to: addressField,
   subject: z.string().min(1, 'subject is required'),
+  threadId: z.string().min(1).optional(),
   ...composeFields,
 }).passthrough();
 const draftWriteSchema = z.object({
   to: addressField.optional(),
   subject: z.string().optional(),
+  threadId: z.string().min(1).optional(),
   ...composeFields,
 }).passthrough();
 const replyEmailSchema = z.object({
@@ -130,7 +140,6 @@ const threadModifySchema = z.object({
 );
 const deleteEmailSchema = z.object({
   messageId: z.string().min(1, 'messageId is required'),
-  permanent: z.boolean().optional(),
 }).passthrough();
 
 function parseArgs<T>(schema: z.ZodType<T>, args: unknown): T {
@@ -527,18 +536,6 @@ export class GmailService {
     }
   }
 
-  async deleteEmailPermanently(messageId: string): Promise<void> {
-    try {
-      await this.gmail.users.messages.delete({
-        userId: 'me',
-        id: messageId,
-      });
-    } catch (error) {
-      this.logger.error('Failed to permanently delete email:', error);
-      throw error;
-    }
-  }
-
   // Drafts
   async listDrafts(options: DraftListOptions = {}): Promise<{ drafts: any[]; nextPageToken?: string }> {
     try {
@@ -700,18 +697,6 @@ export class GmailService {
       });
     } catch (error) {
       this.logger.error(`Failed to trash thread ${threadId}:`, error);
-      throw error;
-    }
-  }
-
-  async deleteThread(threadId: string): Promise<void> {
-    try {
-      await this.gmail.users.threads.delete({
-        userId: 'me',
-        id: threadId,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to delete thread ${threadId}:`, error);
       throw error;
     }
   }
@@ -903,15 +888,6 @@ export class GmailService {
 
   async handleDeleteEmail(args: any): Promise<{ content: Array<TextContent> }> {
     const parsed = parseArgs(deleteEmailSchema, args);
-    if (parsed.permanent) {
-      await this.deleteEmailPermanently(parsed.messageId);
-      return {
-        content: [{
-          type: 'text',
-          text: `Email permanently deleted`,
-        }],
-      };
-    }
     await this.deleteEmail(parsed.messageId);
     return {
       content: [{
@@ -1040,17 +1016,6 @@ export class GmailService {
       content: [{
         type: 'text',
         text: `Thread moved to trash`,
-      }],
-    };
-  }
-
-  async handleDeleteThread(args: any): Promise<{ content: Array<TextContent> }> {
-    const parsed = parseArgs(threadIdSchema, args);
-    await this.deleteThread(parsed.threadId);
-    return {
-      content: [{
-        type: 'text',
-        text: `Thread permanently deleted`,
       }],
     };
   }

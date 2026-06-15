@@ -276,18 +276,13 @@ export const forwardEmailTool: Tool = {
 
 export const deleteEmailTool: Tool = {
   name: 'email_delete',
-  description: 'Delete an email (move to trash, or permanently when permanent=true)',
+  description: 'Delete an email by moving it to trash',
   inputSchema: {
     type: 'object',
     properties: {
       messageId: {
         type: 'string',
         description: 'ID of the email to delete',
-      },
-      permanent: {
-        type: 'boolean',
-        default: false,
-        description: 'Permanently delete instead of moving to trash',
       },
     },
     required: ['messageId'],
@@ -455,18 +450,6 @@ export const trashThreadTool: Tool = {
     type: 'object',
     properties: {
       threadId: { type: 'string', description: 'Thread ID to trash' },
-    },
-    required: ['threadId'],
-  },
-};
-
-export const deleteThreadTool: Tool = {
-  name: 'email_thread_delete',
-  description: 'Permanently delete an entire Gmail thread (destructive; cannot be undone)',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      threadId: { type: 'string', description: 'Thread ID to permanently delete' },
     },
     required: ['threadId'],
   },

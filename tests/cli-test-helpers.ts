@@ -68,7 +68,6 @@ export function createFakeServices(
     listAttachments: async () => [{ id: 'att-1', filename: 'file.txt', mimeType: 'text/plain', size: 12 }],
     downloadAttachment: async () => ({ path: '/tmp/file.txt', filename: 'file.txt', size: 12 }),
     archiveEmail: async () => undefined,
-    deleteEmailPermanently: async () => undefined,
     listDrafts: async () => ({ drafts: [{ id: 'draft-1' }], nextPageToken: undefined }),
     getDraft: async (draftId: string) => ({ id: draftId, message: { id: 'msg-1' } }),
     createDraft: async () => 'draft-1',
@@ -79,7 +78,6 @@ export function createFakeServices(
     getThread: async (threadId: string) => ({ id: threadId, messages: [] }),
     modifyThread: async (threadId: string) => ({ id: threadId }),
     trashThread: async () => undefined,
-    deleteThread: async () => undefined,
   };
 
   const calendar: CalendarServiceLike = {

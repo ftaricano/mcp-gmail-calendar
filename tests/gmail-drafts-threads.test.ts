@@ -30,10 +30,6 @@ function makeService(captured: Record<string, any>): GmailService {
           captured.messagesModify = input;
           return { data: { id: input.id } };
         },
-        delete: async (input: any) => {
-          captured.messagesDelete = input;
-          return { data: {} };
-        },
       },
       drafts: {
         list: async (input: any) => {
@@ -78,10 +74,6 @@ function makeService(captured: Record<string, any>): GmailService {
           captured.threadsTrash = input;
           return { data: { id: input.id } };
         },
-        delete: async (input: any) => {
-          captured.threadsDelete = input;
-          return { data: {} };
-        },
       },
     },
   } as unknown as GmailApiLike;
@@ -122,14 +114,6 @@ test('handleUpdateDraft accepts args without to/subject', async () => {
   assert.equal(captured.draftsUpdate.id, 'd-8');
 });
 
-test('handleDeleteThread forwards thread id to threads.delete', async () => {
-  const captured: Record<string, any> = {};
-  const service = makeService(captured);
-  const result = await service.handleDeleteThread({ threadId: 't-3' });
-  assert.match(result.content[0].text, /permanently deleted/);
-  assert.equal(captured.threadsDelete.id, 't-3');
-});
-
 test('sendDraft posts draft id to drafts.send', async () => {
   const captured: Record<string, any> = {};
   const service = makeService(captured);
@@ -162,18 +146,18 @@ test('archiveEmail removes INBOX label via messages.modify', async () => {
   assert.deepEqual(captured.messagesModify.requestBody, { removeLabelIds: ['INBOX'] });
 });
 
-test('deleteEmailPermanently calls messages.delete', async () => {
+test('handleCreateDraft rejects a numeric threadId', async () => {
   const captured: Record<string, any> = {};
   const service = makeService(captured);
-  await service.deleteEmailPermanently('m-2');
-  assert.equal(captured.messagesDelete.id, 'm-2');
-});
-
-test('deleteThread calls threads.delete', async () => {
-  const captured: Record<string, any> = {};
-  const service = makeService(captured);
-  await service.deleteThread('t-2');
-  assert.equal(captured.threadsDelete.id, 't-2');
+  await assert.rejects(
+    () => service.handleCreateDraft({ body: 'WIP', threadId: 123 }),
+    (err: any) => {
+      assert.equal(err.name, 'McpError');
+      assert.match(err.message, /Invalid arguments/);
+      return true;
+    },
+  );
+  assert.equal(captured.draftsCreate, undefined, 'API must not be called for invalid threadId');
 });
 
 test('createDraft renders templateId into the raw body (not empty)', async () => {
