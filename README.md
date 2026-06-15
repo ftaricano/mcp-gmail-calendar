@@ -18,6 +18,7 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - Drive list/get/upload/download/mkdir/share/trash/restore/copy/batch-delete/revisions/shared-drives/shortcut commands (full CLI↔MCP parity)
 - Docs get/export/create plus insert-text/replace-text/insert-table/insert-image/batch-update commands (CLI↔MCP parity via `documents.batchUpdate`)
 - Sheets get/values (get/update/append)/add-sheet/delete-sheet/rename-sheet/clear/batch-update commands
+- Tasks task-list and task list/get/create/update/complete/move/delete commands
 - Existing MCP toolset for Gmail, Calendar, attachments, templates, and Sheets
 
 ## Install
@@ -40,8 +41,11 @@ Prerequisites:
   - Google Drive API
   - Google Docs API
   - Google Sheets API
+  - Google Tasks API
 
 If you already authenticated before Drive/Docs/Sheets support existed, run `gws auth login --account you@example.com --type workspace` again so Google grants the expanded OAuth scopes.
+
+> **⚠️ Tasks requires re-consent.** Google Tasks adds a brand-new OAuth scope (`https://www.googleapis.com/auth/tasks`). Any account authenticated before Tasks support existed must re-run `gws auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Tasks call returns HTTP 403. `gws auth login` detects when a stored account is missing a current scope and re-triggers the Google consent screen automatically (it is no longer a no-op for already-known accounts).
 
 Configure environment:
 
@@ -299,6 +303,27 @@ and `batch-update` are mutating and support `--dry-run`, returning a
 `{ "dryRun": true, "would": ... }` envelope. `batch-update` takes a raw JSON array of
 Sheets API `Request` objects (formatting, data validation, conditional formatting, etc.);
 malformed JSON fails with a clear `requests must be valid JSON` validation error.
+## Tasks examples
+
+> Tasks needs the `tasks` OAuth scope. If you authenticated before Tasks support existed, re-run `gws auth login --account you@example.com --type workspace` first, otherwise calls return 403.
+
+```bash
+gws tasks lists list
+gws tasks lists get LIST_ID
+gws --dry-run tasks lists create --title "Groceries"
+gws --dry-run tasks lists update LIST_ID --title "Renamed"
+gws --dry-run tasks lists delete LIST_ID
+
+gws tasks list LIST_ID --show-completed --limit 50
+gws tasks get LIST_ID TASK_ID
+gws --dry-run tasks create LIST_ID --title "Buy milk" --notes "whole" --due 2026-06-20T00:00:00Z
+gws --dry-run tasks update LIST_ID TASK_ID --title "New title" --status needsAction
+gws --dry-run tasks complete LIST_ID TASK_ID
+gws --dry-run tasks move LIST_ID TASK_ID --parent PARENT_ID --previous SIBLING_ID
+gws --dry-run tasks delete LIST_ID TASK_ID
+```
+
+Allowed task status values: `needsAction`, `completed`.
 
 ## Output formats
 
@@ -378,6 +403,7 @@ The Sheets surface is at parity between the CLI (`gws sheets ...`) and MCP (`she
 tools): both cover values get/update/append, structural mutations (add/delete/rename
 sheet), range clears, and raw `batchUpdate` requests. Use `--value-input-option
 USER_ENTERED` (CLI) or `valueInputOption: "USER_ENTERED"` (MCP) to write formulas.
+- Tasks: `tasks_lists_list`, `tasks_lists_get`, `tasks_lists_create`, `tasks_lists_update`, `tasks_lists_delete`, `tasks_list`, `tasks_get`, `tasks_create`, `tasks_update`, `tasks_complete`, `tasks_move`, `tasks_delete`
 
 ## Development
 
