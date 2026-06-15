@@ -8,6 +8,7 @@ import type {
   DriveServiceLike,
   GmailServiceLike,
   SheetsServiceLike,
+  TasksServiceLike,
 } from '../src/cli/program.js';
 
 type WriteResult = boolean;
