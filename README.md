@@ -13,7 +13,7 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - OAuth2 for personal Gmail and Google Workspace accounts
 - Multi-account state via `~/.config/gws/state.json`
 - JSON-first output for scripts, plus table/jsonl/tsv formats
-- Gmail list/search/read/send/reply/forward/delete/labels/attachments/read-status commands
+- Gmail list/search/read/send/reply/forward/delete/archive/labels/drafts/threads/attachments/read-status commands
 - Calendar list/upcoming/search/freebusy/create/update/delete/respond/quickadd/conference commands
 - Drive list/get/upload/download/mkdir/share commands
 - Docs get/export/create commands
@@ -126,10 +126,42 @@ gws mail reply MESSAGE_ID --body "Recebido, obrigado."
 gws mail forward MESSAGE_ID --to teammate@example.com --body "Please review."
 ```
 
+Archive and delete:
+
+```bash
+gws mail archive MESSAGE_ID
+gws mail delete MESSAGE_ID              # move to trash
+gws mail delete MESSAGE_ID --permanent  # permanently delete
+```
+
+Drafts:
+
+```bash
+gws mail drafts list --query "is:draft" --limit 10
+gws mail drafts get DRAFT_ID
+gws mail drafts create --to client@example.com --subject "Proposal" --body "Draft body"
+gws mail drafts send DRAFT_ID
+gws mail drafts delete DRAFT_ID
+```
+
+Threads:
+
+```bash
+gws mail threads list --query "from:client@example.com" --label INBOX --limit 10
+gws mail threads get THREAD_ID
+gws mail threads modify THREAD_ID --add-label LABEL_ID --remove-label INBOX
+gws mail threads trash THREAD_ID
+```
+
 Dry-run destructive or mutating actions:
 
 ```bash
 gws --dry-run mail delete MESSAGE_ID
+gws --dry-run mail delete MESSAGE_ID --permanent
+gws --dry-run mail archive MESSAGE_ID
+gws --dry-run mail drafts create --to client@example.com --subject "Proposal" --body "Draft body"
+gws --dry-run mail drafts send DRAFT_ID
+gws --dry-run mail threads modify THREAD_ID --add-label LABEL_ID
 gws --dry-run mail mark-read MESSAGE_ID
 ```
 

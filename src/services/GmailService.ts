@@ -10,6 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import mime from 'mime-types';
 import { sanitizeFilename } from '../utils/Validator.js';
+import { z } from 'zod';
 
 export interface EmailListOptions {
   maxResults?: number;
@@ -61,6 +62,63 @@ export interface SendEmailOptions {
   templateId?: string;
   templateData?: Record<string, any>;
   importance?: 'low' | 'normal' | 'high';
+  inReplyTo?: string;
+  references?: string;
+  threadId?: string;
+}
+
+export type DraftWriteOptions = Omit<SendEmailOptions, 'to' | 'subject'> & {
+  to?: string | string[];
+  subject?: string;
+};
+
+export interface DraftListOptions {
+  maxResults?: number;
+  pageToken?: string;
+  query?: string;
+}
+
+export interface ThreadListOptions {
+  maxResults?: number;
+  pageToken?: string;
+  query?: string;
+  labelIds?: string[];
+}
+
+export type GmailApiLike = Pick<gmail_v1.Gmail, 'users'>;
+
+const messageIdSchema = z.object({ messageId: z.string().min(1, 'messageId is required') });
+const draftIdSchema = z.object({ draftId: z.string().min(1, 'draftId is required') });
+const threadIdSchema = z.object({ threadId: z.string().min(1, 'threadId is required') });
+const sendEmailSchema = z.object({
+  to: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+  subject: z.string().min(1, 'subject is required'),
+}).passthrough();
+const draftWriteSchema = z.object({
+  to: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
+  subject: z.string().optional(),
+}).passthrough();
+const replyEmailSchema = z.object({
+  messageId: z.string().min(1, 'messageId is required'),
+}).passthrough();
+const threadModifySchema = z.object({
+  threadId: z.string().min(1, 'threadId is required'),
+  addLabelIds: z.array(z.string()).optional(),
+  removeLabelIds: z.array(z.string()).optional(),
+}).passthrough();
+const deleteEmailSchema = z.object({
+  messageId: z.string().min(1, 'messageId is required'),
+  permanent: z.boolean().optional(),
+}).passthrough();
+
+function parseArgs<T>(schema: z.ZodType<T>, args: unknown): T {
+  const result = schema.safeParse(args);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const path = issue?.path?.length ? `${issue.path.join('.')}: ` : '';
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments. ${path}${issue?.message ?? 'validation failed'}`);
+  }
+  return result.data;
 }
 
 export function buildAttachmentDownloadPath(
@@ -82,7 +140,7 @@ export function buildAttachmentDownloadPath(
 }
 
 export class GmailService {
-  private gmail: gmail_v1.Gmail;
+  private gmail: GmailApiLike;
   private logger: Logger;
   private cache: CacheManager;
   public templateEngine: TemplateEngine;
@@ -90,8 +148,8 @@ export class GmailService {
   private emailParser: EmailParser;
   private accountEmail: string;
 
-  constructor(auth: OAuth2Client, cache: CacheManager, accountEmail: string) {
-    this.gmail = google.gmail({ version: 'v1', auth });
+  constructor(auth: OAuth2Client, cache: CacheManager, accountEmail: string, gmailApi?: GmailApiLike) {
+    this.gmail = gmailApi ?? google.gmail({ version: 'v1', auth });
     this.logger = new Logger('GmailService');
     this.cache = cache;
     this.accountEmail = accountEmail.trim().toLowerCase();
@@ -228,6 +286,7 @@ export class GmailService {
         userId: 'me',
         requestBody: {
           raw: message,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
         },
       });
 
@@ -238,15 +297,15 @@ export class GmailService {
     }
   }
 
-  private async buildEmailMessage(options: SendEmailOptions): Promise<string> {
+  private async buildEmailMessage(options: DraftWriteOptions): Promise<string> {
     const boundary = `boundary_${Date.now()}`;
-    const to = Array.isArray(options.to) ? options.to : [options.to];
+    const to = options.to ? (Array.isArray(options.to) ? options.to : [options.to]) : [];
     const cc = options.cc ? (Array.isArray(options.cc) ? options.cc : [options.cc]) : [];
     const bcc = options.bcc ? (Array.isArray(options.bcc) ? options.bcc : [options.bcc]) : [];
 
     let messageParts = [
       `To: ${to.join(', ')}`,
-      `Subject: ${options.subject}`,
+      `Subject: ${options.subject ?? ''}`,
       `MIME-Version: 1.0`,
     ];
 
@@ -258,6 +317,12 @@ export class GmailService {
     }
     if (options.replyTo) {
       messageParts.push(`Reply-To: ${options.replyTo}`);
+    }
+    if (options.inReplyTo) {
+      messageParts.push(`In-Reply-To: ${options.inReplyTo}`);
+    }
+    if (options.references) {
+      messageParts.push(`References: ${options.references}`);
     }
     if (options.importance) {
       const importanceMap = { low: '5', normal: '3', high: '1' };
@@ -344,16 +409,18 @@ export class GmailService {
         userId: 'me',
         id: messageId,
         format: 'metadata',
-        metadataHeaders: ['Message-ID'],
+        metadataHeaders: ['Message-ID', 'References'],
       });
 
-      const messageIdHeader = response.data.payload?.headers?.find(h => h.name === 'Message-ID');
-      if (messageIdHeader?.value) {
-        // Need to modify buildEmailMessage to support these headers
-        (replyOptions as any).inReplyTo = messageIdHeader.value;
-        (replyOptions as any).references = messageIdHeader.value;
-        (replyOptions as any).threadId = originalEmail.threadId;
+      const headers = response.data.payload?.headers || [];
+      const messageIdHeader = headers.find((h) => h.name === 'Message-ID')?.value;
+      const origReferences = headers.find((h) => h.name === 'References')?.value;
+
+      if (messageIdHeader) {
+        replyOptions.inReplyTo = messageIdHeader;
+        replyOptions.references = (origReferences ? `${origReferences} ` : '') + messageIdHeader;
       }
+      replyOptions.threadId = originalEmail.threadId;
 
       return await this.sendEmail(replyOptions);
     } catch (error) {
@@ -407,6 +474,208 @@ export class GmailService {
       });
     } catch (error) {
       this.logger.error('Failed to delete email:', error);
+      throw error;
+    }
+  }
+
+  async archiveEmail(messageId: string): Promise<void> {
+    try {
+      await this.gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        requestBody: {
+          removeLabelIds: ['INBOX'],
+        },
+      });
+    } catch (error) {
+      this.logger.error('Failed to archive email:', error);
+      throw error;
+    }
+  }
+
+  async deleteEmailPermanently(messageId: string): Promise<void> {
+    try {
+      await this.gmail.users.messages.delete({
+        userId: 'me',
+        id: messageId,
+      });
+    } catch (error) {
+      this.logger.error('Failed to permanently delete email:', error);
+      throw error;
+    }
+  }
+
+  // Drafts
+  async listDrafts(options: DraftListOptions = {}): Promise<{ drafts: any[]; nextPageToken?: string }> {
+    try {
+      const response = await this.gmail.users.drafts.list({
+        userId: 'me',
+        maxResults: options.maxResults,
+        pageToken: options.pageToken,
+        q: options.query,
+      });
+      return {
+        drafts: response.data.drafts || [],
+        nextPageToken: response.data.nextPageToken || undefined,
+      };
+    } catch (error) {
+      this.logger.error('Failed to list drafts:', error);
+      throw error;
+    }
+  }
+
+  async getDraft(draftId: string): Promise<any> {
+    try {
+      const response = await this.gmail.users.drafts.get({
+        userId: 'me',
+        id: draftId,
+        format: 'full',
+      });
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Failed to get draft ${draftId}:`, error);
+      throw error;
+    }
+  }
+
+  async createDraft(options: DraftWriteOptions): Promise<string> {
+    try {
+      const raw = await this.buildEmailMessage(options);
+      const response = await this.gmail.users.drafts.create({
+        userId: 'me',
+        requestBody: {
+          message: {
+            raw,
+            ...(options.threadId ? { threadId: options.threadId } : {}),
+          },
+        },
+      });
+      return response.data.id || '';
+    } catch (error) {
+      this.logger.error('Failed to create draft:', error);
+      throw error;
+    }
+  }
+
+  async updateDraft(draftId: string, options: DraftWriteOptions): Promise<string> {
+    try {
+      const raw = await this.buildEmailMessage(options);
+      const response = await this.gmail.users.drafts.update({
+        userId: 'me',
+        id: draftId,
+        requestBody: {
+          message: {
+            raw,
+            ...(options.threadId ? { threadId: options.threadId } : {}),
+          },
+        },
+      });
+      return response.data.id || '';
+    } catch (error) {
+      this.logger.error(`Failed to update draft ${draftId}:`, error);
+      throw error;
+    }
+  }
+
+  async sendDraft(draftId: string): Promise<string> {
+    try {
+      const response = await this.gmail.users.drafts.send({
+        userId: 'me',
+        requestBody: { id: draftId },
+      });
+      return response.data.id || '';
+    } catch (error) {
+      this.logger.error(`Failed to send draft ${draftId}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteDraft(draftId: string): Promise<void> {
+    try {
+      await this.gmail.users.drafts.delete({
+        userId: 'me',
+        id: draftId,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to delete draft ${draftId}:`, error);
+      throw error;
+    }
+  }
+
+  // Threads
+  async listThreads(options: ThreadListOptions = {}): Promise<{ threads: any[]; nextPageToken?: string }> {
+    try {
+      const response = await this.gmail.users.threads.list({
+        userId: 'me',
+        maxResults: options.maxResults,
+        pageToken: options.pageToken,
+        q: options.query,
+        labelIds: options.labelIds,
+      });
+      return {
+        threads: response.data.threads || [],
+        nextPageToken: response.data.nextPageToken || undefined,
+      };
+    } catch (error) {
+      this.logger.error('Failed to list threads:', error);
+      throw error;
+    }
+  }
+
+  async getThread(threadId: string): Promise<any> {
+    try {
+      const response = await this.gmail.users.threads.get({
+        userId: 'me',
+        id: threadId,
+        format: 'full',
+      });
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Failed to get thread ${threadId}:`, error);
+      throw error;
+    }
+  }
+
+  async modifyThread(
+    threadId: string,
+    options: { addLabelIds?: string[]; removeLabelIds?: string[] },
+  ): Promise<any> {
+    try {
+      const response = await this.gmail.users.threads.modify({
+        userId: 'me',
+        id: threadId,
+        requestBody: {
+          addLabelIds: options.addLabelIds,
+          removeLabelIds: options.removeLabelIds,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Failed to modify thread ${threadId}:`, error);
+      throw error;
+    }
+  }
+
+  async trashThread(threadId: string): Promise<void> {
+    try {
+      await this.gmail.users.threads.trash({
+        userId: 'me',
+        id: threadId,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to trash thread ${threadId}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteThread(threadId: string): Promise<void> {
+    try {
+      await this.gmail.users.threads.delete({
+        userId: 'me',
+        id: threadId,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to delete thread ${threadId}:`, error);
       throw error;
     }
   }
@@ -565,6 +834,7 @@ export class GmailService {
   }
 
   async handleSendEmail(args: any): Promise<{ content: Array<TextContent> }> {
+    parseArgs(sendEmailSchema, args);
     const messageId = await this.sendEmail(args);
     return {
       content: [{
@@ -575,6 +845,7 @@ export class GmailService {
   }
 
   async handleReplyToEmail(args: any): Promise<{ content: Array<TextContent> }> {
+    parseArgs(replyEmailSchema, args);
     const messageId = await this.replyToEmail(args.messageId, args);
     return {
       content: [{
@@ -595,11 +866,155 @@ export class GmailService {
   }
 
   async handleDeleteEmail(args: any): Promise<{ content: Array<TextContent> }> {
-    await this.deleteEmail(args.messageId);
+    const parsed = parseArgs(deleteEmailSchema, args);
+    if (parsed.permanent) {
+      await this.deleteEmailPermanently(parsed.messageId);
+      return {
+        content: [{
+          type: 'text',
+          text: `Email permanently deleted`,
+        }],
+      };
+    }
+    await this.deleteEmail(parsed.messageId);
     return {
       content: [{
         type: 'text',
         text: `Email deleted successfully`,
+      }],
+    };
+  }
+
+  async handleArchiveEmail(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(messageIdSchema, args);
+    await this.archiveEmail(parsed.messageId);
+    return {
+      content: [{
+        type: 'text',
+        text: `Email archived successfully`,
+      }],
+    };
+  }
+
+  async handleListDrafts(args: any): Promise<{ content: Array<TextContent> }> {
+    const drafts = await this.listDrafts(args || {});
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(drafts, null, 2),
+      }],
+    };
+  }
+
+  async handleGetDraft(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(draftIdSchema, args);
+    const draft = await this.getDraft(parsed.draftId);
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(draft, null, 2),
+      }],
+    };
+  }
+
+  async handleCreateDraft(args: any): Promise<{ content: Array<TextContent> }> {
+    parseArgs(draftWriteSchema, args);
+    const draftId = await this.createDraft(args);
+    return {
+      content: [{
+        type: 'text',
+        text: `Draft created successfully. Draft ID: ${draftId}`,
+      }],
+    };
+  }
+
+  async handleUpdateDraft(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(draftIdSchema, args);
+    parseArgs(draftWriteSchema, args);
+    const draftId = await this.updateDraft(parsed.draftId, args);
+    return {
+      content: [{
+        type: 'text',
+        text: `Draft updated successfully. Draft ID: ${draftId}`,
+      }],
+    };
+  }
+
+  async handleSendDraft(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(draftIdSchema, args);
+    const messageId = await this.sendDraft(parsed.draftId);
+    return {
+      content: [{
+        type: 'text',
+        text: `Draft sent successfully. Message ID: ${messageId}`,
+      }],
+    };
+  }
+
+  async handleDeleteDraft(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(draftIdSchema, args);
+    await this.deleteDraft(parsed.draftId);
+    return {
+      content: [{
+        type: 'text',
+        text: `Draft deleted successfully`,
+      }],
+    };
+  }
+
+  async handleListThreads(args: any): Promise<{ content: Array<TextContent> }> {
+    const threads = await this.listThreads(args || {});
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(threads, null, 2),
+      }],
+    };
+  }
+
+  async handleGetThread(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(threadIdSchema, args);
+    const thread = await this.getThread(parsed.threadId);
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(thread, null, 2),
+      }],
+    };
+  }
+
+  async handleModifyThread(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(threadModifySchema, args);
+    const thread = await this.modifyThread(parsed.threadId, {
+      addLabelIds: parsed.addLabelIds,
+      removeLabelIds: parsed.removeLabelIds,
+    });
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(thread, null, 2),
+      }],
+    };
+  }
+
+  async handleTrashThread(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(threadIdSchema, args);
+    await this.trashThread(parsed.threadId);
+    return {
+      content: [{
+        type: 'text',
+        text: `Thread moved to trash`,
+      }],
+    };
+  }
+
+  async handleDeleteThread(args: any): Promise<{ content: Array<TextContent> }> {
+    const parsed = parseArgs(threadIdSchema, args);
+    await this.deleteThread(parsed.threadId);
+    return {
+      content: [{
+        type: 'text',
+        text: `Thread permanently deleted`,
       }],
     };
   }

@@ -1,7 +1,14 @@
 import { OAuth2Client } from 'google-auth-library';
 import { GoogleAuthManager } from '../auth/GoogleAuthManager.js';
 import { CacheManager } from '../utils/CacheManager.js';
-import { type AttachmentInfo, GmailService, type SendEmailOptions } from '../services/GmailService.js';
+import {
+  type AttachmentInfo,
+  type DraftListOptions,
+  type DraftWriteOptions,
+  GmailService,
+  type SendEmailOptions,
+  type ThreadListOptions,
+} from '../services/GmailService.js';
 import { CalendarService, type CalendarEvent, type FreeBusyQuery } from '../services/CalendarService.js';
 import { DriveService, type DriveFileRecord, type DriveListOptions, type DriveUploadOptions, type DriveDownloadResult } from '../services/DriveService.js';
 import { DocsService } from '../services/DocsService.js';
@@ -46,6 +53,22 @@ export interface GmailServiceLike {
     attachmentId: string,
     savePath: string,
   ): Promise<{ path: string; filename?: string; size: number }>;
+  archiveEmail(messageId: string): Promise<void>;
+  deleteEmailPermanently(messageId: string): Promise<void>;
+  listDrafts(options?: DraftListOptions): Promise<{ drafts: unknown[]; nextPageToken?: string }>;
+  getDraft(draftId: string): Promise<unknown>;
+  createDraft(options: DraftWriteOptions): Promise<string>;
+  updateDraft(draftId: string, options: DraftWriteOptions): Promise<string>;
+  sendDraft(draftId: string): Promise<string>;
+  deleteDraft(draftId: string): Promise<void>;
+  listThreads(options?: ThreadListOptions): Promise<{ threads: unknown[]; nextPageToken?: string }>;
+  getThread(threadId: string): Promise<unknown>;
+  modifyThread(
+    threadId: string,
+    options: { addLabelIds?: string[]; removeLabelIds?: string[] },
+  ): Promise<unknown>;
+  trashThread(threadId: string): Promise<void>;
+  deleteThread(threadId: string): Promise<void>;
 }
 
 export interface CalendarServiceLike {

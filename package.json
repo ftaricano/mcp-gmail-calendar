@@ -1,6 +1,6 @@
 {
   "name": "@mcp/gmail-calendar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CLI-first Google Workspace tool with MCP compatibility for Gmail and Calendar workflows.",
   "main": "dist/index.js",
   "type": "module",
