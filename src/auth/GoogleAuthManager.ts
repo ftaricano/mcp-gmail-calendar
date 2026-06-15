@@ -31,7 +31,7 @@ export class GoogleAuthManager {
   private tokensPath: string;
   private oauthClients: Map<string, OAuth2Client> = new Map();
   private pendingAuthUrls: Map<string, string> = new Map();
-  private authServers: Map<string, http.Server> = new Map();
+  private authServers: Map<string, http.Server[]> = new Map();
 
   // Gmail and Calendar scopes
   private readonly SCOPES = [
@@ -153,22 +153,57 @@ export class GoogleAuthManager {
   }
 
   private async startAuthServer(oAuth2Client: OAuth2Client, email: string, state: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const port = parseInt(process.env.OAUTH_CALLBACK_PORT || '3000');
-      
-      const server = http.createServer(async (req, res) => {
+    const port = parseInt(process.env.OAUTH_CALLBACK_PORT || '3000');
+    const servers: http.Server[] = [];
+
+    // Close every listener bound for this auth attempt. Safe to call multiple
+    // times — http.Server.close() is idempotent for already-closed sockets.
+    const closeAllServers = (): void => {
+      for (const s of servers) {
         try {
-          const url = new URL(req.url!, `http://localhost:${port}`);
-          
+          s.close();
+        } catch {
+          // ignore: socket may already be closed
+        }
+      }
+    };
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const settleResolve = (): void => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const settleReject = (err: Error): void => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+
+      // Shared request handler. Bound to both loopback listeners so that any
+      // resolution of `localhost` (IPv4 127.0.0.1 or IPv6 ::1) reaches it.
+      const requestHandler = async (
+        req: http.IncomingMessage,
+        res: http.ServerResponse,
+      ): Promise<void> => {
+        try {
+          // Parse only the pathname/query; rely on a fixed loopback base rather
+          // than `localhost` so parsing is independent of address family.
+          const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
+
           if (url.pathname === '/oauth2callback') {
             const code = url.searchParams.get('code');
             const receivedState = url.searchParams.get('state');
-            
+
             if (!code || receivedState !== state) {
               res.writeHead(400, { 'Content-Type': 'text/html' });
               res.end('<h1>Authentication Failed</h1><p>Invalid or missing authorization code.</p>');
-              server.close();
-              reject(new Error('Invalid authorization code'));
+              closeAllServers();
+              this.authServers.delete(state);
+              settleReject(new Error('Invalid authorization code'));
               return;
             }
 
@@ -179,19 +214,19 @@ export class GoogleAuthManager {
             // Get user info
             const oauth2 = google.oauth2({ version: 'v2', auth: oAuth2Client });
             const userInfo = await oauth2.userinfo.get();
-            
+
             const actualEmail = userInfo.data.email || email;
-            
+
             // Save tokens and account info
             await this.saveTokens(actualEmail, tokens, userInfo.data);
-            
+
             // Store OAuth client
             this.oauthClients.set(actualEmail, oAuth2Client);
-            
+
             // Clean up
             this.pendingAuthUrls.delete(state);
             this.authServers.delete(state);
-            
+
             // Send success response
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(`
@@ -211,37 +246,65 @@ export class GoogleAuthManager {
                 </body>
               </html>
             `);
-            
-            // Close server after response
+
+            // Close both listeners after the response is flushed.
             setTimeout(() => {
-              server.close();
+              closeAllServers();
             }, 1000);
-            
-            resolve();
+
+            settleResolve();
           }
         } catch (error) {
           this.logger.error('Error in auth callback:', error);
           res.writeHead(500, { 'Content-Type': 'text/html' });
           res.end('<h1>Authentication Error</h1><p>An error occurred during authentication.</p>');
-          server.close();
-          reject(error);
+          closeAllServers();
+          this.authServers.delete(state);
+          settleReject(error instanceof Error ? error : new Error(String(error)));
         }
-      });
+      };
 
-      // Bind to loopback only. Without an explicit host the listener defaults
-      // to all interfaces (0.0.0.0/::), exposing the OAuth callback to the local
-      // network and allowing an attacker to forge callbacks and intercept tokens.
-      server.listen(port, '127.0.0.1', () => {
+      // Bind to loopback only — never 0.0.0.0/:: — so the callback is not
+      // exposed on the local network. We listen on BOTH loopback families so
+      // that whichever address `localhost` resolves to (127.0.0.1 or ::1)
+      // reaches the same handler.
+      const ipv4Server = http.createServer(requestHandler);
+      servers.push(ipv4Server);
+
+      ipv4Server.listen(port, '127.0.0.1', () => {
         this.logger.info(`Auth server listening on 127.0.0.1:${port} for ${email}`);
-        this.authServers.set(state, server);
-        resolve();
+        this.authServers.set(state, servers);
+
+        // Best-effort IPv6 loopback. If the host has no IPv6 stack the bind
+        // fails — degrade to IPv4-only rather than aborting the whole flow.
+        const ipv6Server = http.createServer(requestHandler);
+        ipv6Server.on('error', (err) => {
+          this.logger.warn(
+            `IPv6 loopback (::1) bind failed for ${email}; continuing IPv4-only:`,
+            err,
+          );
+        });
+        ipv6Server.listen(port, '::1', () => {
+          servers.push(ipv6Server);
+          this.authServers.set(state, servers);
+          this.logger.info(`Auth server also listening on [::1]:${port} for ${email}`);
+        });
+
+        settleResolve();
       });
 
-      // Auto-close server after 5 minutes. unref() so this cleanup timer never
+      ipv4Server.on('error', (err) => {
+        this.logger.error(`Auth server bind failed on 127.0.0.1:${port} for ${email}:`, err);
+        closeAllServers();
+        this.authServers.delete(state);
+        settleReject(err);
+      });
+
+      // Auto-close servers after 5 minutes. unref() so this cleanup timer never
       // keeps the host process (or the test runner) alive on its own.
       const autoCloseTimer = setTimeout(() => {
         if (this.authServers.has(state)) {
-          server.close();
+          closeAllServers();
           this.authServers.delete(state);
           this.pendingAuthUrls.delete(state);
           this.logger.info(`Auth server timeout for ${email}`);
@@ -276,8 +339,14 @@ export class GoogleAuthManager {
   }
 
   cleanupAuthServers(): void {
-    for (const [state, server] of this.authServers.entries()) {
-      server.close();
+    for (const [state, servers] of this.authServers.entries()) {
+      for (const server of servers) {
+        try {
+          server.close();
+        } catch {
+          // ignore: socket may already be closed
+        }
+      }
       this.authServers.delete(state);
       this.pendingAuthUrls.delete(state);
     }
