@@ -268,35 +268,73 @@ export class GoogleAuthManager {
       // exposed on the local network. We listen on BOTH loopback families so
       // that whichever address `localhost` resolves to (127.0.0.1 or ::1)
       // reaches the same handler.
+      //
+      // The redirect URI is `http://localhost`, which the OS may resolve to
+      // either family. The IPv6 (::1) bind is therefore NOT optional in a
+      // security sense: if `::1:port` is occupied by another process, the
+      // OAuth callback (carrying the authorization code) could be delivered to
+      // that process. So we only degrade to IPv4-only when IPv6 is genuinely
+      // unavailable on the host (EAFNOSUPPORT / EADDRNOTAVAIL); any other error
+      // (notably EADDRINUSE) is a hard failure that rejects the whole flow.
+      //
+      // We also defer settling until BOTH binds have a known outcome, so we
+      // never resolve before learning that the ::1 bind failed with e.g.
+      // EADDRINUSE.
       const ipv4Server = http.createServer(requestHandler);
       servers.push(ipv4Server);
 
-      ipv4Server.listen(port, '127.0.0.1', () => {
-        this.logger.info(`Auth server listening on 127.0.0.1:${port} for ${email}`);
-        this.authServers.set(state, servers);
-
-        // Best-effort IPv6 loopback. If the host has no IPv6 stack the bind
-        // fails — degrade to IPv4-only rather than aborting the whole flow.
+      const bindIpv6 = (): void => {
         const ipv6Server = http.createServer(requestHandler);
-        ipv6Server.on('error', (err) => {
-          this.logger.warn(
-            `IPv6 loopback (::1) bind failed for ${email}; continuing IPv4-only:`,
+        ipv6Server.on('error', (err: NodeJS.ErrnoException) => {
+          const code = err?.code;
+          if (code === 'EAFNOSUPPORT' || code === 'EADDRNOTAVAIL') {
+            // IPv6 genuinely unavailable on this host — degrade to IPv4-only.
+            this.logger.warn(
+              `IPv6 loopback (::1) unavailable (${code}) for ${email}; continuing IPv4-only`,
+            );
+            settleResolve();
+            return;
+          }
+
+          // Any other error (e.g. EADDRINUSE) is a hard failure. If we degraded
+          // silently here, the OAuth callback could be delivered to whatever
+          // process already holds [::1]:port — leaking the authorization code.
+          this.logger.error(
+            `Auth server bind failed on [::1]:${port} for ${email}:`,
             err,
+          );
+          closeAllServers();
+          this.authServers.delete(state);
+          this.pendingAuthUrls.delete(state);
+          settleReject(
+            new Error(
+              `Failed to bind OAuth callback on [::1]:${port}: ${code ?? err?.message ?? 'unknown error'}`,
+            ),
           );
         });
         ipv6Server.listen(port, '::1', () => {
           servers.push(ipv6Server);
           this.authServers.set(state, servers);
           this.logger.info(`Auth server also listening on [::1]:${port} for ${email}`);
+          // Both binds succeeded — now it is safe to resolve.
+          settleResolve();
         });
+      };
 
-        settleResolve();
+      ipv4Server.listen(port, '127.0.0.1', () => {
+        this.logger.info(`Auth server listening on 127.0.0.1:${port} for ${email}`);
+        this.authServers.set(state, servers);
+
+        // IPv4 is up; attempt the IPv6 loopback bind. Settling is deferred to
+        // the IPv6 outcome (success, degrade, or hard failure).
+        bindIpv6();
       });
 
       ipv4Server.on('error', (err) => {
         this.logger.error(`Auth server bind failed on 127.0.0.1:${port} for ${email}:`, err);
         closeAllServers();
         this.authServers.delete(state);
+        this.pendingAuthUrls.delete(state);
         settleReject(err);
       });
 
