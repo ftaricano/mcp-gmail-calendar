@@ -1446,3 +1446,128 @@ export const createCustomTemplateTool: Tool = {
     required: ['name', 'content'],
   },
 };
+
+// Google Docs Tools
+export const docsGetTool: Tool = {
+  name: 'docs_get',
+  description: 'Get a Google Doc by its document id',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      documentId: { type: 'string', description: 'Google Docs document id' },
+    },
+    required: ['documentId'],
+  },
+};
+
+export const docsCreateTool: Tool = {
+  name: 'docs_create',
+  description: 'Create a new Google Doc with an optional initial body',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Document title' },
+      content: { type: 'string', description: 'Optional initial body text' },
+    },
+    required: ['title'],
+  },
+};
+
+export const docsExportTool: Tool = {
+  name: 'docs_export',
+  description: 'Export a Google Doc to a file using a MIME type',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      documentId: { type: 'string', description: 'Google Docs document id' },
+      mimeType: { type: 'string', description: 'Export MIME type (e.g. application/pdf)' },
+      outputPath: { type: 'string', description: 'Destination file path' },
+    },
+    required: ['documentId', 'mimeType', 'outputPath'],
+  },
+};
+
+export const docsBatchUpdateTool: Tool = {
+  name: 'docs_batch_update',
+  description: 'Apply raw documents.batchUpdate requests to a Google Doc (formatting, tables, images, etc.)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      documentId: { type: 'string', description: 'Google Docs document id' },
+      requests: {
+        type: 'array',
+        description: 'Array of raw docs_v1 batchUpdate request objects',
+        items: { type: 'object' },
+      },
+    },
+    required: ['documentId', 'requests'],
+  },
+};
+
+export const docsInsertTextTool: Tool = {
+  name: 'docs_insert_text',
+  description: 'Insert text into a Google Doc at an index (default 1)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      documentId: { type: 'string', description: 'Google Docs document id' },
+      text: { type: 'string', description: 'Text to insert' },
+      index: { type: 'number', description: 'Insertion index (default 1)' },
+    },
+    required: ['documentId', 'text'],
+  },
+};
+
+export const docsReplaceTextTool: Tool = {
+  name: 'docs_replace_text',
+  description: 'Replace all occurrences of text in a Google Doc',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      documentId: { type: 'string', description: 'Google Docs document id' },
+      replacements: {
+        type: 'array',
+        description: 'List of find/replace pairs',
+        items: {
+          type: 'object',
+          properties: {
+            find: { type: 'string', description: 'Text to find' },
+            replace: { type: 'string', description: 'Replacement text' },
+            matchCase: { type: 'boolean', description: 'Case-sensitive match (default false)' },
+          },
+          required: ['find', 'replace'],
+        },
+      },
+    },
+    required: ['documentId', 'replacements'],
+  },
+};
+
+export const docsInsertTableTool: Tool = {
+  name: 'docs_insert_table',
+  description: 'Insert a table into a Google Doc at an index (default 1)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      documentId: { type: 'string', description: 'Google Docs document id' },
+      rows: { type: 'number', description: 'Number of rows' },
+      columns: { type: 'number', description: 'Number of columns' },
+      index: { type: 'number', description: 'Insertion index (default 1)' },
+    },
+    required: ['documentId', 'rows', 'columns'],
+  },
+};
+
+export const docsInsertImageTool: Tool = {
+  name: 'docs_insert_image',
+  description: 'Insert an inline image into a Google Doc from a URI at an index (default 1)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      documentId: { type: 'string', description: 'Google Docs document id' },
+      uri: { type: 'string', description: 'Publicly accessible image URI' },
+      index: { type: 'number', description: 'Insertion index (default 1)' },
+    },
+    required: ['documentId', 'uri'],
+  },
+};
