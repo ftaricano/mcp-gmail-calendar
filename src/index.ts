@@ -18,6 +18,7 @@ import dotenv from 'dotenv';
 import { GoogleAuthManager } from './auth/GoogleAuthManager.js';
 import { GmailService } from './services/GmailService.js';
 import { CalendarService } from './services/CalendarService.js';
+import { DriveService } from './services/DriveService.js';
 import { Logger } from './utils/Logger.js';
 import { CacheManager } from './utils/CacheManager.js';
 import { validateEnvironment } from './utils/Validator.js';
@@ -30,6 +31,7 @@ class GmailCalendarMCPServer {
   private authManager: GoogleAuthManager;
   private gmailService: GmailService | null = null;
   private calendarService: CalendarService | null = null;
+  private driveService: DriveService | null = null;
   private logger: Logger;
   private cache: CacheManager;
   private currentAccount: string | null = null;
@@ -137,6 +139,21 @@ class GmailCalendarMCPServer {
       tools.getEventInstancesTool,
       tools.createCalendarTool,
       tools.deleteCalendarTool,
+
+      // Drive Tools
+      tools.driveListTool,
+      tools.driveGetTool,
+      tools.driveUploadTool,
+      tools.driveDownloadTool,
+      tools.driveMkdirTool,
+      tools.driveShareTool,
+      tools.driveTrashTool,
+      tools.driveRestoreTool,
+      tools.driveCopyTool,
+      tools.driveBatchDeleteTool,
+      tools.driveRevisionsTool,
+      tools.driveSharedDrivesTool,
+      tools.driveShortcutTool,
 
       // Template Tools
       tools.listEmailTemplatesTool,
@@ -275,6 +292,11 @@ class GmailCalendarMCPServer {
         return await this.handleCalendarTool(name, args);
       }
 
+      // Drive tools
+      if (name.startsWith('drive_')) {
+        return await this.handleDriveTool(name, args);
+      }
+
       // Template tools
       if (name.startsWith('template_')) {
         return await this.handleTemplateTool(name, args);
@@ -361,6 +383,7 @@ class GmailCalendarMCPServer {
       this.currentAccount = null;
       this.gmailService = null;
       this.calendarService = null;
+      this.driveService = null;
     }
 
     return {
@@ -564,6 +587,54 @@ class GmailCalendarMCPServer {
     }
   }
 
+  private async handleDriveTool(name: string, args: any): Promise<{ content: Array<TextContent | ImageContent> }> {
+    await this.ensureServicesInitialized();
+
+    switch (name) {
+      case 'drive_list':
+        return await this.driveService!.handleListFiles(args);
+
+      case 'drive_get':
+        return await this.driveService!.handleGetFile(args);
+
+      case 'drive_upload':
+        return await this.driveService!.handleUploadFile(args);
+
+      case 'drive_download':
+        return await this.driveService!.handleDownloadFile(args);
+
+      case 'drive_mkdir':
+        return await this.driveService!.handleCreateFolder(args);
+
+      case 'drive_share':
+        return await this.driveService!.handleShareFile(args);
+
+      case 'drive_trash':
+        return await this.driveService!.handleTrashFile(args);
+
+      case 'drive_restore':
+        return await this.driveService!.handleRestoreFile(args);
+
+      case 'drive_copy':
+        return await this.driveService!.handleCopyFile(args);
+
+      case 'drive_batch_delete':
+        return await this.driveService!.handleBatchDelete(args);
+
+      case 'drive_revisions':
+        return await this.driveService!.handleListRevisions(args);
+
+      case 'drive_shared_drives':
+        return await this.driveService!.handleListSharedDrives(args);
+
+      case 'drive_shortcut':
+        return await this.driveService!.handleCreateShortcut(args);
+
+      default:
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown drive tool: ${name}`);
+    }
+  }
+
   private async handleTemplateTool(name: string, args: any): Promise<{ content: Array<TextContent> }> {
     await this.ensureServicesInitialized();
 
@@ -597,7 +668,7 @@ class GmailCalendarMCPServer {
   }
 
   private async ensureServicesInitialized(): Promise<void> {
-    if (!this.gmailService || !this.calendarService) {
+    if (!this.gmailService || !this.calendarService || !this.driveService) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         'Services not initialized. Please authenticate or switch to an account first.'
@@ -641,6 +712,7 @@ class GmailCalendarMCPServer {
 
     this.gmailService = new GmailService(auth, this.cache, email);
     this.calendarService = new CalendarService(auth, this.cache, email);
+    this.driveService = new DriveService(auth, this.cache, email);
     
     // Initialize template engine
     if (this.gmailService && this.gmailService.templateEngine) {

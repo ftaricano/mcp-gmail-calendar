@@ -1156,6 +1156,223 @@ export const getUpcomingEventsTool: Tool = {
   },
 };
 
+// Drive Tools
+export const driveListTool: Tool = {
+  name: 'drive_list',
+  description: 'List Google Drive files with an optional query',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: "Drive query string (e.g., \"mimeType != 'application/vnd.google-apps.folder'\")",
+      },
+      pageSize: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 1000,
+        default: 50,
+        description: 'Maximum number of files to return',
+      },
+      pageToken: {
+        type: 'string',
+        description: 'Token for pagination',
+      },
+    },
+  },
+};
+
+export const driveGetTool: Tool = {
+  name: 'drive_get',
+  description: 'Get metadata for a Google Drive file by ID',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'Drive file ID' },
+    },
+    required: ['fileId'],
+  },
+};
+
+export const driveUploadTool: Tool = {
+  name: 'drive_upload',
+  description: 'Upload a local file to Google Drive',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Local path of the file to upload' },
+      name: { type: 'string', description: 'Optional name for the uploaded file' },
+      mimeType: { type: 'string', description: 'Optional MIME type override' },
+      parents: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Parent folder IDs',
+      },
+    },
+    required: ['path'],
+  },
+};
+
+export const driveDownloadTool: Tool = {
+  name: 'drive_download',
+  description: 'Download a Google Drive file to a local path',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'Drive file ID' },
+      outputPath: { type: 'string', description: 'Local output path' },
+    },
+    required: ['fileId', 'outputPath'],
+  },
+};
+
+export const driveMkdirTool: Tool = {
+  name: 'drive_mkdir',
+  description: 'Create a folder in Google Drive',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Folder name' },
+      parentId: { type: 'string', description: 'Optional parent folder ID' },
+    },
+    required: ['name'],
+  },
+};
+
+export const driveShareTool: Tool = {
+  name: 'drive_share',
+  description: 'Share a Google Drive file by creating a permission',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'Drive file ID' },
+      role: {
+        type: 'string',
+        enum: ['reader', 'commenter', 'writer'],
+        description: 'Permission role',
+      },
+      emailAddress: { type: 'string', description: 'Target email for user/group permissions' },
+      type: {
+        type: 'string',
+        enum: ['user', 'group', 'domain', 'anyone'],
+        default: 'user',
+        description: 'Permission grantee type',
+      },
+    },
+    required: ['fileId', 'role'],
+  },
+};
+
+export const driveTrashTool: Tool = {
+  name: 'drive_trash',
+  description: 'Move a Google Drive file to the trash (recoverable)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'Drive file ID' },
+    },
+    required: ['fileId'],
+  },
+};
+
+export const driveRestoreTool: Tool = {
+  name: 'drive_restore',
+  description: 'Restore a Google Drive file from the trash',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'Drive file ID' },
+    },
+    required: ['fileId'],
+  },
+};
+
+export const driveCopyTool: Tool = {
+  name: 'drive_copy',
+  description: 'Copy a Google Drive file',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'Source Drive file ID' },
+      name: { type: 'string', description: 'Optional name for the copy' },
+      parents: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Parent folder IDs for the copy',
+      },
+    },
+    required: ['fileId'],
+  },
+};
+
+export const driveBatchDeleteTool: Tool = {
+  name: 'drive_batch_delete',
+  description: 'Move multiple Google Drive files to the trash (recoverable, not a permanent delete). Continues past per-file errors.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileIds: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        description: 'Drive file IDs to trash',
+      },
+    },
+    required: ['fileIds'],
+  },
+};
+
+export const driveRevisionsTool: Tool = {
+  name: 'drive_revisions',
+  description: 'List revisions of a Google Drive file (read-only)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      fileId: { type: 'string', description: 'Drive file ID' },
+    },
+    required: ['fileId'],
+  },
+};
+
+export const driveSharedDrivesTool: Tool = {
+  name: 'drive_shared_drives',
+  description: 'List shared drives for the current account (read-only)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      pageSize: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 100,
+        default: 50,
+        description: 'Maximum number of shared drives to return',
+      },
+      pageToken: {
+        type: 'string',
+        description: 'Token for pagination',
+      },
+    },
+  },
+};
+
+export const driveShortcutTool: Tool = {
+  name: 'drive_shortcut',
+  description: 'Create a shortcut to a Google Drive file or folder',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      targetId: { type: 'string', description: 'ID of the target file or folder' },
+      name: { type: 'string', description: 'Name for the shortcut' },
+      parents: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Parent folder IDs for the shortcut',
+      },
+    },
+    required: ['targetId', 'name'],
+  },
+};
+
 // Template Tools
 export const listEmailTemplatesTool: Tool = {
   name: 'template_list',

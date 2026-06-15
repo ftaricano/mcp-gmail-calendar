@@ -4,8 +4,18 @@ import path from 'node:path';
 import mime from 'mime-types';
 import { drive_v3, google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { TextContent, McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import { Logger } from '../utils/Logger.js';
 import { CacheManager } from '../utils/CacheManager.js';
+
+function parseArgs<T>(schema: z.ZodType<T>, args: unknown): T {
+  const result = schema.safeParse(args ?? {});
+  if (!result.success) {
+    throw new McpError(ErrorCode.InvalidParams, result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; '));
+  }
+  return result.data;
+}
 
 function responseDataToBuffer(data: unknown): Buffer {
   if (Buffer.isBuffer(data)) return data;
@@ -43,7 +53,27 @@ export interface DriveDownloadResult {
   size: number;
 }
 
-type DriveApiLike = Pick<drive_v3.Drive, 'files' | 'permissions'>;
+type DriveApiLike = Pick<drive_v3.Drive, 'files' | 'permissions' | 'revisions' | 'drives'>;
+
+export interface DriveCopyOptions {
+  name?: string;
+  parents?: string[];
+}
+
+export interface DriveShortcutOptions {
+  parents?: string[];
+}
+
+export interface DriveSharedDriveListOptions {
+  pageSize?: number;
+  pageToken?: string;
+}
+
+export interface DriveBatchDeleteResult {
+  fileId: string;
+  status: 'success' | 'error';
+  error?: string;
+}
 
 function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T> {
   return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as Partial<T>;
@@ -171,5 +201,227 @@ export class DriveService {
       emailAddress: response.data.emailAddress ?? emailAddress,
       type: response.data.type ?? type,
     };
+  }
+
+  async trashFile(fileId: string): Promise<DriveFileRecord> {
+    try {
+      const response = await this.drive.files.update({
+        fileId,
+        requestBody: { trashed: true },
+        fields: 'id,name,mimeType,webViewLink,parents,modifiedTime,size',
+      });
+      return driveFileRecord(response.data);
+    } catch (error) {
+      this.logger.error(`Failed to trash file ${fileId}:`, error);
+      throw error;
+    }
+  }
+
+  async restoreFile(fileId: string): Promise<DriveFileRecord> {
+    try {
+      const response = await this.drive.files.update({
+        fileId,
+        requestBody: { trashed: false },
+        fields: 'id,name,mimeType,webViewLink,parents,modifiedTime,size',
+      });
+      return driveFileRecord(response.data);
+    } catch (error) {
+      this.logger.error(`Failed to restore file ${fileId}:`, error);
+      throw error;
+    }
+  }
+
+  async copyFile(fileId: string, options: DriveCopyOptions = {}): Promise<DriveFileRecord> {
+    try {
+      const response = await this.drive.files.copy({
+        fileId,
+        requestBody: {
+          name: options.name,
+          parents: options.parents,
+        },
+        fields: 'id,name,mimeType,webViewLink,parents,modifiedTime,size',
+      });
+      return driveFileRecord(response.data);
+    } catch (error) {
+      this.logger.error(`Failed to copy file ${fileId}:`, error);
+      throw error;
+    }
+  }
+
+  // Security: "delete" moves files to trash (recoverable), never a permanent delete.
+  async batchDelete(fileIds: string[]): Promise<DriveBatchDeleteResult[]> {
+    const results: DriveBatchDeleteResult[] = [];
+    for (const fileId of fileIds) {
+      try {
+        await this.drive.files.update({ fileId, requestBody: { trashed: true } });
+        results.push({ fileId, status: 'success' });
+      } catch (error) {
+        this.logger.error(`Failed to batch-trash file ${fileId}:`, error);
+        results.push({ fileId, status: 'error', error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return results;
+  }
+
+  async listRevisions(fileId: string): Promise<drive_v3.Schema$Revision[]> {
+    try {
+      const response = await this.drive.revisions.list({
+        fileId,
+        fields: 'revisions(id,mimeType,modifiedTime,size,keepForever,originalFilename,lastModifyingUser)',
+      });
+      return response.data.revisions || [];
+    } catch (error) {
+      this.logger.error(`Failed to list revisions for file ${fileId}:`, error);
+      throw error;
+    }
+  }
+
+  async listSharedDrives(options: DriveSharedDriveListOptions = {}): Promise<{ drives: drive_v3.Schema$Drive[]; nextPageToken?: string }> {
+    try {
+      const response = await this.drive.drives.list({
+        pageSize: options.pageSize ?? 50,
+        pageToken: options.pageToken,
+        fields: 'nextPageToken,drives(id,name,createdTime,hidden)',
+      });
+      return {
+        drives: response.data.drives || [],
+        nextPageToken: response.data.nextPageToken ?? undefined,
+      };
+    } catch (error) {
+      this.logger.error('Failed to list shared drives:', error);
+      throw error;
+    }
+  }
+
+  async createShortcut(targetId: string, name: string, options: DriveShortcutOptions = {}): Promise<DriveFileRecord> {
+    try {
+      const response = await this.drive.files.create({
+        requestBody: {
+          name,
+          mimeType: 'application/vnd.google-apps.shortcut',
+          shortcutDetails: { targetId },
+          parents: options.parents,
+        },
+        fields: 'id,name,mimeType,webViewLink,parents,modifiedTime,size,shortcutDetails',
+      });
+      return driveFileRecord(response.data);
+    } catch (error) {
+      this.logger.error(`Failed to create shortcut for target ${targetId}:`, error);
+      throw error;
+    }
+  }
+
+  // MCP handlers
+
+  private ok(result: unknown): { content: Array<TextContent> } {
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+
+  async handleListFiles(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(
+      z.object({
+        query: z.string().optional(),
+        pageSize: z.number().int().positive().optional(),
+        pageToken: z.string().optional(),
+      }),
+      args,
+    );
+    return this.ok(await this.listFiles(input));
+  }
+
+  async handleGetFile(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(z.object({ fileId: z.string().min(1) }), args);
+    return this.ok(await this.getFile(input.fileId));
+  }
+
+  async handleUploadFile(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(
+      z.object({
+        path: z.string().min(1),
+        name: z.string().optional(),
+        mimeType: z.string().optional(),
+        parents: z.array(z.string()).optional(),
+      }),
+      args,
+    );
+    return this.ok(await this.uploadFile(input));
+  }
+
+  async handleDownloadFile(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(z.object({ fileId: z.string().min(1), outputPath: z.string().min(1) }), args);
+    return this.ok(await this.downloadFile(input.fileId, input.outputPath));
+  }
+
+  async handleCreateFolder(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(z.object({ name: z.string().min(1), parentId: z.string().optional() }), args);
+    return this.ok(await this.createFolder(input.name, input.parentId));
+  }
+
+  async handleShareFile(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(
+      z.object({
+        fileId: z.string().min(1),
+        role: z.enum(['reader', 'commenter', 'writer']),
+        emailAddress: z.string().optional(),
+        type: z.enum(['user', 'group', 'domain', 'anyone']).optional(),
+      }),
+      args,
+    );
+    return this.ok(await this.shareFile(input.fileId, input.role, input.emailAddress, input.type));
+  }
+
+  async handleTrashFile(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(z.object({ fileId: z.string().min(1) }), args);
+    return this.ok(await this.trashFile(input.fileId));
+  }
+
+  async handleRestoreFile(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(z.object({ fileId: z.string().min(1) }), args);
+    return this.ok(await this.restoreFile(input.fileId));
+  }
+
+  async handleCopyFile(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(
+      z.object({
+        fileId: z.string().min(1),
+        name: z.string().optional(),
+        parents: z.array(z.string()).optional(),
+      }),
+      args,
+    );
+    return this.ok(await this.copyFile(input.fileId, { name: input.name, parents: input.parents }));
+  }
+
+  async handleBatchDelete(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(z.object({ fileIds: z.array(z.string().min(1)).min(1) }), args);
+    return this.ok(await this.batchDelete(input.fileIds));
+  }
+
+  async handleListRevisions(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(z.object({ fileId: z.string().min(1) }), args);
+    return this.ok(await this.listRevisions(input.fileId));
+  }
+
+  async handleListSharedDrives(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(
+      z.object({
+        pageSize: z.number().int().positive().optional(),
+        pageToken: z.string().optional(),
+      }),
+      args,
+    );
+    return this.ok(await this.listSharedDrives(input));
+  }
+
+  async handleCreateShortcut(args: unknown): Promise<{ content: Array<TextContent> }> {
+    const input = parseArgs(
+      z.object({
+        targetId: z.string().min(1),
+        name: z.string().min(1),
+        parents: z.array(z.string()).optional(),
+      }),
+      args,
+    );
+    return this.ok(await this.createShortcut(input.targetId, input.name, { parents: input.parents }));
   }
 }
