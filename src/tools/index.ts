@@ -981,3 +981,168 @@ export const createCustomTemplateTool: Tool = {
     required: ['name', 'content'],
   },
 };
+
+// Google Tasks Tools
+export const listTaskListsTool: Tool = {
+  name: 'tasks_lists_list',
+  description: 'List the authenticated account task lists',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      maxResults: { type: 'integer', minimum: 1, description: 'Maximum number of task lists to return' },
+      pageToken: { type: 'string', description: 'Page token for pagination' },
+    },
+  },
+};
+
+export const getTaskListTool: Tool = {
+  name: 'tasks_lists_get',
+  description: 'Get a single task list by id',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+    },
+    required: ['tasklistId'],
+  },
+};
+
+export const createTaskListTool: Tool = {
+  name: 'tasks_lists_create',
+  description: 'Create a new task list',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Title of the task list' },
+    },
+    required: ['title'],
+  },
+};
+
+export const updateTaskListTool: Tool = {
+  name: 'tasks_lists_update',
+  description: 'Update the title of a task list',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      title: { type: 'string', description: 'New title' },
+    },
+    required: ['tasklistId', 'title'],
+  },
+};
+
+export const deleteTaskListTool: Tool = {
+  name: 'tasks_lists_delete',
+  description: 'Delete a task list',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+    },
+    required: ['tasklistId'],
+  },
+};
+
+export const listTasksTool: Tool = {
+  name: 'tasks_list',
+  description: 'List tasks within a task list',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      showCompleted: { type: 'boolean', description: 'Include completed tasks' },
+      showHidden: { type: 'boolean', description: 'Include hidden tasks' },
+      maxResults: { type: 'integer', minimum: 1, description: 'Maximum number of tasks to return' },
+      pageToken: { type: 'string', description: 'Page token for pagination' },
+    },
+    required: ['tasklistId'],
+  },
+};
+
+export const getTaskTool: Tool = {
+  name: 'tasks_get',
+  description: 'Get a single task by id',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      taskId: { type: 'string', description: 'Task id' },
+    },
+    required: ['tasklistId', 'taskId'],
+  },
+};
+
+export const createTaskTool: Tool = {
+  name: 'tasks_create',
+  description: 'Create a new task in a task list',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      title: { type: 'string', description: 'Task title' },
+      notes: { type: 'string', description: 'Task notes' },
+      due: { type: 'string', description: 'Due date in RFC 3339 format' },
+      parent: { type: 'string', description: 'Parent task id to nest this task under' },
+    },
+    required: ['tasklistId', 'title'],
+  },
+};
+
+export const updateTaskTool: Tool = {
+  name: 'tasks_update',
+  description: 'Update fields of an existing task',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      taskId: { type: 'string', description: 'Task id' },
+      title: { type: 'string', description: 'New title' },
+      notes: { type: 'string', description: 'New notes' },
+      due: { type: 'string', description: 'New due date in RFC 3339 format' },
+      status: { type: 'string', enum: ['needsAction', 'completed'], description: 'Task status' },
+    },
+    required: ['tasklistId', 'taskId'],
+  },
+};
+
+export const completeTaskTool: Tool = {
+  name: 'tasks_complete',
+  description: 'Mark a task as completed',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      taskId: { type: 'string', description: 'Task id' },
+    },
+    required: ['tasklistId', 'taskId'],
+  },
+};
+
+export const moveTaskTool: Tool = {
+  name: 'tasks_move',
+  description: 'Move a task to a new position or parent',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      taskId: { type: 'string', description: 'Task id' },
+      parent: { type: 'string', description: 'New parent task id' },
+      previous: { type: 'string', description: 'Sibling task id to position after' },
+    },
+    required: ['tasklistId', 'taskId'],
+  },
+};
+
+export const deleteTaskTool: Tool = {
+  name: 'tasks_delete',
+  description: 'Delete a task',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tasklistId: { type: 'string', description: 'Task list id' },
+      taskId: { type: 'string', description: 'Task id' },
+    },
+    required: ['tasklistId', 'taskId'],
+  },
+};

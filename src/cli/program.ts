@@ -4,6 +4,7 @@ import { buildCalendarEventPayload, buildFreeBusyPayload, ensureCreatableEvent, 
 import {
   type AuthManagerLike,
   type CliServiceFactories,
+  type TasksServiceLike,
   requireKnownAccount,
   resolveAccount,
   switchCurrentAccount,
@@ -18,7 +19,7 @@ import {
   runAction,
 } from './runtime.js';
 
-export type { AuthManagerLike, CliServiceFactories, CreateProgramOptions };
+export type { AuthManagerLike, CliServiceFactories, CreateProgramOptions, TasksServiceLike };
 
 function globals(program: Command): { account?: string; dryRun?: boolean } {
   return program.optsWithGlobals() as { account?: string; dryRun?: boolean };
@@ -394,6 +395,70 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     const payload = buildSheetsValuesPayload(JSON.parse(opts.values), valueInputOption);
     if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'sheets.append', spreadsheetId, range: opts.range, payload } };
     return { account, result: await (await runtime.services.sheets(account)).appendValues(spreadsheetId, opts.range, payload.values, payload.valueInputOption) };
+  }));
+
+  const tasks = program.command('tasks').description('Google Tasks commands');
+  const taskLists = tasks.command('lists').description('Manage task lists');
+  taskLists.command('list').description('List task lists').option('--limit <n>', 'Maximum results').option('--page-token <token>').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.tasks(account)).listTaskLists({ maxResults: opts.limit ? parsePositiveInteger(opts.limit, 'limit') : undefined, pageToken: opts.pageToken }) };
+  }));
+  taskLists.command('get').argument('<id>').description('Get a task list').action((id) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.tasks(account)).getTaskList(id) };
+  }));
+  taskLists.command('create').requiredOption('--title <title>').description('Create a task list').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.lists.create', title: opts.title } };
+    return { account, result: await (await runtime.services.tasks(account)).createTaskList(opts.title) };
+  }));
+  taskLists.command('update').argument('<id>').requiredOption('--title <title>').description('Update a task list title').action((id, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.lists.update', tasklistId: id, title: opts.title } };
+    return { account, result: await (await runtime.services.tasks(account)).updateTaskList(id, opts.title) };
+  }));
+  taskLists.command('delete').argument('<id>').description('Delete a task list').action((id) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.lists.delete', tasklistId: id } };
+    await (await runtime.services.tasks(account)).deleteTaskList(id);
+    return { account, deleted: id };
+  }));
+  tasks.command('list').argument('<tasklistId>').description('List tasks in a list').option('--show-completed').option('--limit <n>', 'Maximum results').action((tasklistId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.tasks(account)).listTasks(tasklistId, { showCompleted: Boolean(opts.showCompleted), maxResults: opts.limit ? parsePositiveInteger(opts.limit, 'limit') : undefined }) };
+  }));
+  tasks.command('get').argument('<tasklistId>').argument('<taskId>').description('Get a task').action((tasklistId, taskId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, result: await (await runtime.services.tasks(account)).getTask(tasklistId, taskId) };
+  }));
+  tasks.command('create').argument('<tasklistId>').requiredOption('--title <title>').option('--notes <notes>').option('--due <iso>').description('Create a task').action((tasklistId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const payload = { title: opts.title, notes: opts.notes, due: opts.due };
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.create', tasklistId, payload } };
+    return { account, result: await (await runtime.services.tasks(account)).createTask(tasklistId, payload) };
+  }));
+  tasks.command('update').argument('<tasklistId>').argument('<taskId>').option('--title <title>').option('--notes <notes>').option('--due <iso>').option('--status <status>', 'needsAction or completed').description('Update a task').action((tasklistId, taskId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const status = opts.status ? parseEnumValue(opts.status, ['needsAction', 'completed'] as const, 'status') : undefined;
+    const fields = { title: opts.title, notes: opts.notes, due: opts.due, status };
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.update', tasklistId, taskId, fields } };
+    return { account, result: await (await runtime.services.tasks(account)).updateTask(tasklistId, taskId, fields) };
+  }));
+  tasks.command('complete').argument('<tasklistId>').argument('<taskId>').description('Mark a task completed').action((tasklistId, taskId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.complete', tasklistId, taskId } };
+    return { account, result: await (await runtime.services.tasks(account)).completeTask(tasklistId, taskId) };
+  }));
+  tasks.command('move').argument('<tasklistId>').argument('<taskId>').option('--parent <id>').option('--previous <id>').description('Move a task').action((tasklistId, taskId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.move', tasklistId, taskId, parent: opts.parent, previous: opts.previous } };
+    return { account, result: await (await runtime.services.tasks(account)).moveTask(tasklistId, taskId, { parent: opts.parent, previous: opts.previous }) };
+  }));
+  tasks.command('delete').argument('<tasklistId>').argument('<taskId>').description('Delete a task').action((tasklistId, taskId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'tasks.delete', tasklistId, taskId } };
+    await (await runtime.services.tasks(account)).deleteTask(tasklistId, taskId);
+    return { account, deleted: taskId };
   }));
 
   program.command('doctor').description('Check local gws configuration').action(() => runAction(program, runtime, async () => ({

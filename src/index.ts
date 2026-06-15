@@ -18,6 +18,7 @@ import dotenv from 'dotenv';
 import { GoogleAuthManager } from './auth/GoogleAuthManager.js';
 import { GmailService } from './services/GmailService.js';
 import { CalendarService } from './services/CalendarService.js';
+import { TasksService } from './services/TasksService.js';
 import { Logger } from './utils/Logger.js';
 import { CacheManager } from './utils/CacheManager.js';
 import { validateEnvironment } from './utils/Validator.js';
@@ -30,6 +31,7 @@ class GmailCalendarMCPServer {
   private authManager: GoogleAuthManager;
   private gmailService: GmailService | null = null;
   private calendarService: CalendarService | null = null;
+  private tasksService: TasksService | null = null;
   private logger: Logger;
   private cache: CacheManager;
   private currentAccount: string | null = null;
@@ -124,6 +126,20 @@ class GmailCalendarMCPServer {
       tools.listEmailTemplatesTool,
       tools.renderEmailTemplateTool,
       tools.createCustomTemplateTool,
+
+      // Google Tasks Tools
+      tools.listTaskListsTool,
+      tools.getTaskListTool,
+      tools.createTaskListTool,
+      tools.updateTaskListTool,
+      tools.deleteTaskListTool,
+      tools.listTasksTool,
+      tools.getTaskTool,
+      tools.createTaskTool,
+      tools.updateTaskTool,
+      tools.completeTaskTool,
+      tools.moveTaskTool,
+      tools.deleteTaskTool,
     ];
   }
 
@@ -262,6 +278,11 @@ class GmailCalendarMCPServer {
         return await this.handleTemplateTool(name, args);
       }
 
+      // Google Tasks tools
+      if (name.startsWith('tasks_')) {
+        return await this.handleTasksTool(name, args);
+      }
+
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     } catch (error) {
       this.logger.error(`Error handling tool call ${name}:`, error);
@@ -343,6 +364,7 @@ class GmailCalendarMCPServer {
       this.currentAccount = null;
       this.gmailService = null;
       this.calendarService = null;
+      this.tasksService = null;
     }
 
     return {
@@ -521,6 +543,39 @@ class GmailCalendarMCPServer {
     }
   }
 
+  private async handleTasksTool(name: string, args: any): Promise<{ content: Array<TextContent> }> {
+    await this.ensureServicesInitialized();
+
+    switch (name) {
+      case 'tasks_lists_list':
+        return await this.tasksService!.handleListTaskLists(args);
+      case 'tasks_lists_get':
+        return await this.tasksService!.handleGetTaskList(args);
+      case 'tasks_lists_create':
+        return await this.tasksService!.handleCreateTaskList(args);
+      case 'tasks_lists_update':
+        return await this.tasksService!.handleUpdateTaskList(args);
+      case 'tasks_lists_delete':
+        return await this.tasksService!.handleDeleteTaskList(args);
+      case 'tasks_list':
+        return await this.tasksService!.handleListTasks(args);
+      case 'tasks_get':
+        return await this.tasksService!.handleGetTask(args);
+      case 'tasks_create':
+        return await this.tasksService!.handleCreateTask(args);
+      case 'tasks_update':
+        return await this.tasksService!.handleUpdateTask(args);
+      case 'tasks_complete':
+        return await this.tasksService!.handleCompleteTask(args);
+      case 'tasks_move':
+        return await this.tasksService!.handleMoveTask(args);
+      case 'tasks_delete':
+        return await this.tasksService!.handleDeleteTask(args);
+      default:
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown tasks tool: ${name}`);
+    }
+  }
+
   private async ensureAuthenticated(email: string): Promise<void> {
     const accounts = await this.authManager.listAccounts();
     const account = accounts.find(a => a.email === email);
@@ -536,7 +591,7 @@ class GmailCalendarMCPServer {
   }
 
   private async ensureServicesInitialized(): Promise<void> {
-    if (!this.gmailService || !this.calendarService) {
+    if (!this.gmailService || !this.calendarService || !this.tasksService) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         'Services not initialized. Please authenticate or switch to an account first.'
@@ -580,6 +635,7 @@ class GmailCalendarMCPServer {
 
     this.gmailService = new GmailService(auth, this.cache, email);
     this.calendarService = new CalendarService(auth, this.cache, email);
+    this.tasksService = new TasksService(auth, this.cache, email);
     
     // Initialize template engine
     if (this.gmailService && this.gmailService.templateEngine) {

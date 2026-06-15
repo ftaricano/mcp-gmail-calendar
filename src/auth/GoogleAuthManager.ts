@@ -32,6 +32,9 @@ export class GoogleAuthManager {
   private oauthClients: Map<string, OAuth2Client> = new Map();
   private pendingAuthUrls: Map<string, string> = new Map();
   private authServers: Map<string, http.Server> = new Map();
+  // Scopes a conta concedeu (do token persistido). Usado para forçar re-consent
+  // quando SCOPES ganha um escopo novo que a conta ainda não autorizou.
+  private accountScopes: Map<string, string[]> = new Map();
 
   // Gmail and Calendar scopes
   private readonly SCOPES = [
@@ -45,6 +48,7 @@ export class GoogleAuthManager {
     'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/documents',
     'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/tasks',
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
   ];
@@ -97,6 +101,7 @@ export class GoogleAuthManager {
           oAuth2Client.setCredentials(tokenData.tokens);
           
           this.oauthClients.set(email, oAuth2Client);
+          this.accountScopes.set(email, tokenData.accountInfo?.scopes ?? []);
           this.logger.info(`Loaded existing account: ${email}`);
         } catch (error) {
           this.logger.error(`Failed to load account ${email}:`, error);
@@ -119,10 +124,17 @@ export class GoogleAuthManager {
 
   async authenticate(email: string, accountType: 'personal' | 'workspace' = 'personal'): Promise<string | null> {
     try {
-      // Check if already authenticated
+      // Already authenticated AND holding every current scope → nothing to do.
+      // If SCOPES gained a scope the stored grant lacks (e.g. a newly added
+      // surface), fall through to a fresh consent so the account re-authorizes.
       if (this.oauthClients.has(email)) {
-        this.logger.info(`Account ${email} is already authenticated`);
-        return null;
+        const granted = this.accountScopes.get(email) ?? [];
+        const missing = this.SCOPES.filter((scope) => !granted.includes(scope));
+        if (missing.length === 0) {
+          this.logger.info(`Account ${email} is already authenticated`);
+          return null;
+        }
+        this.logger.info(`Account ${email} missing scopes [${missing.join(', ')}]; forcing re-consent`);
       }
 
       const oAuth2Client = await this.createOAuthClient();
@@ -266,7 +278,8 @@ export class GoogleAuthManager {
     await fs.mkdir(this.tokensPath, { recursive: true, mode: 0o700 });
     await fs.writeFile(tokenPath, JSON.stringify(tokenData, null, 2), { mode: 0o600 });
     await fs.chmod(tokenPath, 0o600);
-    
+    this.accountScopes.set(email, accountInfo.scopes);
+
     this.logger.info(`Saved tokens for ${email}`);
   }
 

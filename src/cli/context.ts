@@ -6,6 +6,13 @@ import { CalendarService, type CalendarEvent, type FreeBusyQuery } from '../serv
 import { DriveService, type DriveFileRecord, type DriveListOptions, type DriveUploadOptions, type DriveDownloadResult } from '../services/DriveService.js';
 import { DocsService } from '../services/DocsService.js';
 import { SheetsService } from '../services/SheetsService.js';
+import {
+  type CreateTaskInput,
+  type ListTasksOptions,
+  type MoveTaskOptions,
+  type UpdateTaskFields,
+  TasksService,
+} from '../services/TasksService.js';
 import { AuthCliError, NotFoundCliError } from './errors.js';
 import { loadState, saveState } from './config.js';
 
@@ -114,12 +121,28 @@ export interface SheetsServiceLike {
   ): Promise<unknown>;
 }
 
+export interface TasksServiceLike {
+  listTaskLists(opts?: { maxResults?: number; pageToken?: string }): Promise<unknown>;
+  getTaskList(tasklistId: string): Promise<unknown>;
+  createTaskList(title: string): Promise<unknown>;
+  updateTaskList(tasklistId: string, title: string): Promise<unknown>;
+  deleteTaskList(tasklistId: string): Promise<void>;
+  listTasks(tasklistId: string, opts?: ListTasksOptions): Promise<unknown>;
+  getTask(tasklistId: string, taskId: string): Promise<unknown>;
+  createTask(tasklistId: string, input: CreateTaskInput): Promise<unknown>;
+  updateTask(tasklistId: string, taskId: string, fields: UpdateTaskFields): Promise<unknown>;
+  completeTask(tasklistId: string, taskId: string): Promise<unknown>;
+  moveTask(tasklistId: string, taskId: string, opts?: MoveTaskOptions): Promise<unknown>;
+  deleteTask(tasklistId: string, taskId: string): Promise<void>;
+}
+
 export interface CliServiceFactories {
   gmail(email: string): Promise<GmailServiceLike>;
   calendar(email: string): Promise<CalendarServiceLike>;
   drive(email: string): Promise<DriveServiceLike>;
   docs(email: string): Promise<DocsServiceLike>;
   sheets(email: string): Promise<SheetsServiceLike>;
+  tasks(email: string): Promise<TasksServiceLike>;
 }
 
 export async function resolveAccount(
@@ -176,6 +199,10 @@ export async function sheetsFor(authManager: AuthManagerLike, cache: CacheManage
   return new SheetsService(await getAuthClient(authManager, email), cache, email);
 }
 
+export async function tasksFor(authManager: AuthManagerLike, cache: CacheManager, email: string): Promise<TasksServiceLike> {
+  return new TasksService(await getAuthClient(authManager, email), cache, email);
+}
+
 export function createServiceFactories(authManager: AuthManagerLike, cache: CacheManager): CliServiceFactories {
   return {
     gmail: (email) => gmailFor(authManager, cache, email),
@@ -183,5 +210,6 @@ export function createServiceFactories(authManager: AuthManagerLike, cache: Cach
     drive: (email) => driveFor(authManager, cache, email),
     docs: (email) => docsFor(authManager, cache, email),
     sheets: (email) => sheetsFor(authManager, cache, email),
+    tasks: (email) => tasksFor(authManager, cache, email),
   };
 }

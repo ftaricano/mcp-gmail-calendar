@@ -18,6 +18,7 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - Drive list/get/upload/download/mkdir/share commands
 - Docs get/export/create commands
 - Sheets spreadsheet and values get/update/append commands
+- Tasks task-list and task list/get/create/update/complete/move/delete commands
 - Existing MCP toolset for Gmail, Calendar, attachments, and templates
 
 ## Install
@@ -40,8 +41,11 @@ Prerequisites:
   - Google Drive API
   - Google Docs API
   - Google Sheets API
+  - Google Tasks API
 
 If you already authenticated before Drive/Docs/Sheets support existed, run `gws auth login --account you@example.com --type workspace` again so Google grants the expanded OAuth scopes.
+
+> **⚠️ Tasks requires re-consent.** Google Tasks adds a brand-new OAuth scope (`https://www.googleapis.com/auth/tasks`). Any account authenticated before Tasks support existed must re-run `gws auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Tasks call returns HTTP 403. `gws auth login` detects when a stored account is missing a current scope and re-triggers the Google consent screen automatically (it is no longer a no-op for already-known accounts).
 
 Configure environment:
 
@@ -217,6 +221,28 @@ gws sheets values append SPREADSHEET_ID "Sheet1!A:B" --values '[["new","row"]]'
 
 Allowed value input options: `RAW`, `USER_ENTERED`.
 
+## Tasks examples
+
+> Tasks needs the `tasks` OAuth scope. If you authenticated before Tasks support existed, re-run `gws auth login --account you@example.com --type workspace` first, otherwise calls return 403.
+
+```bash
+gws tasks lists list
+gws tasks lists get LIST_ID
+gws --dry-run tasks lists create --title "Groceries"
+gws --dry-run tasks lists update LIST_ID --title "Renamed"
+gws --dry-run tasks lists delete LIST_ID
+
+gws tasks list LIST_ID --show-completed --limit 50
+gws tasks get LIST_ID TASK_ID
+gws --dry-run tasks create LIST_ID --title "Buy milk" --notes "whole" --due 2026-06-20T00:00:00Z
+gws --dry-run tasks update LIST_ID TASK_ID --title "New title" --status needsAction
+gws --dry-run tasks complete LIST_ID TASK_ID
+gws --dry-run tasks move LIST_ID TASK_ID --parent PARENT_ID --previous SIBLING_ID
+gws --dry-run tasks delete LIST_ID TASK_ID
+```
+
+Allowed task status values: `needsAction`, `completed`.
+
 ## Output formats
 
 Default output is JSON and stdout is kept data-only for successful commands.
@@ -281,6 +307,7 @@ node /absolute/path/to/mcp-gmail-calendar/dist/index.js
 - Attachments: `email_list_attachments`, `email_download_attachment`
 - Calendar: `calendar_list`, `event_list`, `event_get`, `event_create`, `event_update`, `event_delete`, availability, invitation response, quick add, upcoming
 - Templates: list, render, create
+- Tasks: `tasks_lists_list`, `tasks_lists_get`, `tasks_lists_create`, `tasks_lists_update`, `tasks_lists_delete`, `tasks_list`, `tasks_get`, `tasks_create`, `tasks_update`, `tasks_complete`, `tasks_move`, `tasks_delete`
 
 ## Development
 
