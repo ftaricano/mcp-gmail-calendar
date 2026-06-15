@@ -1,8 +1,180 @@
 import fs from 'fs/promises';
 import path from 'path';
+import dns from 'node:dns';
+import net from 'node:net';
 import mime from 'mime-types';
+import { Agent } from 'undici';
 import { Logger } from './Logger.js';
-import { validateAttachmentSize, validateAttachmentType, sanitizeFilename } from './Validator.js';
+import {
+  validateAttachmentSize,
+  validateAttachmentType,
+  sanitizeFilename,
+  assertSafePublicUrl,
+  isBlockedIp,
+  UnsafeUrlError,
+} from './Validator.js';
+
+type DnsLookupAll = (
+  hostname: string,
+  options: { all: true },
+) => Promise<Array<{ address: string; family: number }>>;
+
+export interface SafeFetchOptions {
+  maxRedirects?: number;
+  // Injection points for testing; default to the real implementations.
+  fetchImpl?: typeof fetch;
+  lookupAll?: DnsLookupAll;
+}
+
+const defaultLookupAll: DnsLookupAll = (hostname, options) =>
+  dns.promises.lookup(hostname, options);
+
+// Build an undici Agent whose connect step re-validates the resolved IP at the
+// moment of connection and pins the connection to that already-validated
+// address. This closes the TOCTOU/DNS-rebinding window between validation and
+// the actual TCP connect: the kernel-level lookup callback is the last code to
+// run before connecting, and it both re-checks the IP against the block ranges
+// and hands undici exactly the address(es) it validated.
+// dns.lookup-compatible callback. net.connect may invoke the custom lookup in
+// two modes: with `options.all === true` it expects an array of {address,
+// family}; otherwise it expects scalar (address, family). We support both and
+// always validate fail-closed before handing anything to the socket.
+type PinnedLookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | Array<{ address: string; family: number }>,
+  family?: number,
+) => void;
+
+// Re-validate the resolved IP(s) at connection time and pin the connection to
+// the already-validated address(es). This closes the TOCTOU/DNS-rebinding
+// window between validation and the actual TCP connect.
+export function pinnedLookup(
+  hostname: string,
+  options: { all?: boolean } | undefined,
+  callback: PinnedLookupCallback,
+): void {
+  const wantAll = options?.all === true;
+
+  const deliver = (entries: Array<{ address: string; family: number }>): void => {
+    for (const entry of entries) {
+      if (isBlockedIp(entry.address.toLowerCase())) {
+        callback(
+          new Error(
+            'SSRF guard: connection target resolved to a blocked address',
+          ) as NodeJS.ErrnoException,
+          '',
+        );
+        return;
+      }
+    }
+    if (wantAll) {
+      callback(null, entries);
+    } else {
+      // Scalar contract: first validated IP and its numeric family (4 or 6).
+      callback(null, entries[0].address, entries[0].family);
+    }
+  };
+
+  // If undici already has an IP literal, validate it directly (no DNS).
+  const literalType = net.isIP(hostname);
+  if (literalType !== 0) {
+    if (isBlockedIp(hostname.toLowerCase())) {
+      callback(
+        new Error('SSRF guard: connection target is a blocked address') as NodeJS.ErrnoException,
+        '',
+      );
+      return;
+    }
+    deliver([{ address: hostname, family: literalType }]);
+    return;
+  }
+
+  dns.lookup(hostname, { all: true }, (err, addresses) => {
+    if (err) {
+      callback(err, '');
+      return;
+    }
+    if (!addresses || addresses.length === 0) {
+      callback(
+        new Error('SSRF guard: host did not resolve') as NodeJS.ErrnoException,
+        '',
+      );
+      return;
+    }
+    deliver(addresses);
+  });
+}
+
+function createPinnedAgent(): Agent {
+  return new Agent({
+    // Let undici/net negotiate Happy-Eyeballs so the scalar lookup path is also
+    // exercised correctly; the custom lookup remains fail-closed in both modes.
+    connect: {
+      autoSelectFamily: true,
+      lookup: pinnedLookup,
+    },
+  });
+}
+
+function resolveLocation(currentUrl: string, location: string): string {
+  return new URL(location, currentUrl).toString();
+}
+
+/**
+ * Fail-closed SSRF-aware fetch. Validates the initial URL (and every redirect
+ * hop) with assertSafePublicUrl, disables automatic redirect following, and
+ * pins each connection to an already-validated IP via a custom undici Agent.
+ */
+export async function safeFetch(
+  url: string,
+  options: SafeFetchOptions = {},
+): Promise<Response> {
+  const maxRedirects = options.maxRedirects ?? 5;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const lookupAll = options.lookupAll ?? defaultLookupAll;
+  const agent = createPinnedAgent();
+
+  try {
+    let currentUrl = url;
+    let remaining = maxRedirects;
+
+    // Validate the initial target before any network activity.
+    await assertSafePublicUrl(currentUrl, lookupAll);
+
+    for (;;) {
+      const response = await fetchImpl(currentUrl, {
+        redirect: 'manual',
+        // dispatcher is an undici extension to RequestInit; cast through unknown.
+        ...({ dispatcher: agent } as Record<string, unknown>),
+      } as RequestInit);
+
+      const status = response.status;
+      const isRedirect = status >= 300 && status < 400;
+      if (!isRedirect) {
+        return response;
+      }
+
+      const location = response.headers.get('location');
+      if (!location) {
+        // Redirect status without a target: nothing safe to follow.
+        return response;
+      }
+
+      if (remaining <= 0) {
+        throw new UnsafeUrlError('Too many redirects while fetching URL');
+      }
+      remaining -= 1;
+
+      const nextUrl = resolveLocation(currentUrl, location);
+      // Revalidate the redirect target before following it.
+      await assertSafePublicUrl(nextUrl, lookupAll);
+      currentUrl = nextUrl;
+    }
+  } finally {
+    // Release sockets held by the pinned agent.
+    await agent.close().catch(() => {});
+  }
+}
 
 export interface Attachment {
   filename: string;
@@ -271,23 +443,36 @@ export class AttachmentHandler {
   async createFromUrl(
     filename: string,
     url: string,
-    contentType?: string
+    contentType?: string,
+    safeFetchOptions: SafeFetchOptions = {}
   ): Promise<AttachmentMetadata> {
     try {
-      const response = await fetch(url);
+      // SSRF guard is fully enforced inside safeFetch: it validates the initial
+      // URL and every redirect hop against blocked ranges, resolves DNS up
+      // front, and pins each connection to an already-validated IP to close the
+      // DNS-rebinding window. No automatic redirect following.
+      const response = await safeFetch(url, safeFetchOptions);
       if (!response.ok) {
         throw new Error(`Failed to download from URL: ${response.status}`);
       }
 
       const buffer = Buffer.from(await response.arrayBuffer());
-      const detectedContentType = contentType || 
-                                  response.headers.get('content-type') || 
+      const detectedContentType = contentType ||
+                                  response.headers.get('content-type') ||
                                   undefined;
 
       return this.saveAttachment(filename, buffer, detectedContentType);
 
     } catch (error) {
-      this.logger.error(`Failed to create attachment from URL ${url}:`, error);
+      // Log without leaking query-string credentials: only the host is recorded.
+      const safeUrl = (() => {
+        try {
+          return new URL(url).host;
+        } catch {
+          return '<invalid-url>';
+        }
+      })();
+      this.logger.error(`Failed to create attachment from URL host ${safeUrl}:`, error);
       throw error;
     }
   }

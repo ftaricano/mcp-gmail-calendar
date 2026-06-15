@@ -44,13 +44,14 @@
     "mime-types": "^2.1.35",
     "node-cache": "^5.1.2",
     "sanitize-html": "^2.14.0",
+    "undici": "^6.25.0",
     "winston": "^3.17.0",
     "zod": "^3.24.1"
   },
   "overrides": {
     "jws": "4.0.1",
     "node-forge": "1.4.0",
-    "undici": "^6.24.0"
+    "undici": "^6.25.0"
   },
   "devDependencies": {
     "@types/html-to-text": "^9.0.4",

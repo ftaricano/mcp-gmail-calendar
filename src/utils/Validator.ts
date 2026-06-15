@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
+import dns from 'node:dns';
+import net from 'node:net';
 import { Logger } from './Logger.js';
 
 const logger = new Logger('Validator');
@@ -191,6 +193,222 @@ export function isValidEmail(email: string): boolean {
 
 export function isValidUrl(url: string): boolean {
   return z.string().url().safeParse(url).success;
+}
+
+// SSRF protection: only allow http(s) requests to public hosts. Rejects
+// loopback, private, link-local and IPv4-mapped IPv6 ranges so that
+// attacker-controlled URLs (e.g. an email link) cannot reach internal
+// services such as 127.0.0.1:3000/oauth2callback or cloud metadata.
+function isBlockedIpv4(host: string): boolean {
+  const octets = host.split('.');
+  if (octets.length !== 4) return false;
+
+  const parts = octets.map(o => Number(o));
+  if (parts.some(p => !Number.isInteger(p) || p < 0 || p > 255)) return false;
+
+  const [a, b, c] = parts;
+
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 127) return true; // loopback 127.0.0.0/8
+  if (a === 10) return true; // private 10.0.0.0/8
+  if (a === 172 && b >= 16 && b <= 31) return true; // private 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // private 192.168.0.0/16
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata 169.254.0.0/16
+
+  // Additional special-use / non-globally-routable ranges (RFC 6890 + afins).
+  // Fail-closed so attacker-controlled URLs cannot reach these via SSRF.
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
+  if (a === 192 && b === 0 && c === 0) return true; // IETF protocol assignments 192.0.0.0/24
+  if (a === 192 && b === 0 && c === 2) return true; // TEST-NET-1 192.0.2.0/24
+  if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2 198.51.100.0/24
+  if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3 203.0.113.0/24
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmark 198.18.0.0/15
+  if (a === 192 && b === 88 && c === 99) return true; // 6to4 anycast (deprecated) 192.88.99.0/24
+  if (a >= 224 && a <= 239) return true; // multicast 224.0.0.0/4
+  if (a >= 240) return true; // reserved 240.0.0.0/4 + broadcast 255.255.255.255
+
+  return false;
+}
+
+// Block every IPv6 address that is not global-unicast. Fail-closed: any form we
+// cannot confidently classify as a routable public address is rejected. The host
+// must already be normalized (lowercase, no surrounding brackets).
+export function isBlockedIpv6(host: string): boolean {
+  // Sanity-check the literal form first. Anything net.isIPv6 cannot parse is
+  // not a usable IPv6 address here, so reject it (fail-closed).
+  if (!net.isIPv6(host)) return true;
+
+  // Mapped / embedded IPv4 forms. The WHATWG URL parser may keep the dotted
+  // form (::ffff:127.0.0.1) or normalize to hex (::ffff:7f00:1); handle both,
+  // and reject any other ::ffff embedding we don't expect.
+  if (host.startsWith('::ffff:')) {
+    const dotted = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+    if (dotted) return isBlockedIpv4(dotted[1]);
+
+    const hexMapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      return isBlockedIpv4(ipv4);
+    }
+
+    // Unrecognized ::ffff: shape -> fail-closed.
+    return true;
+  }
+
+  // Loopback and unspecified.
+  if (host === '::1' || host === '::') return true;
+
+  // IPv4-compatible / deprecated embeddings such as ::a.b.c.d or ::<hex>:<hex>
+  // (a single :: prefix with no ffff marker). These are deprecated and easy to
+  // abuse to reach internal IPv4 -> fail-closed.
+  if (host.startsWith('::') && host !== '::') return true;
+
+  // Allowlist, not blocklist: only global-unicast 2000::/3 (first hextet
+  // 0x2000..0x3fff) is routable public space. Everything else is non-global and
+  // fail-closed — ULA fc00::/7, link-local fe80::/10, site-local fec0::/10
+  // (deprecated), multicast ff00::/8, and any other special range.
+  const groups = host.split(':');
+  const h0 = parseInt(groups[0] || '0', 16);
+  const h1 = parseInt(groups[1] || '0', 16);
+
+  if (h0 < 0x2000 || h0 > 0x3fff) return true; // outside global-unicast 2000::/3
+
+  // Within 2000::/3 there are IANA special-purpose IPv6 sub-ranges that are NOT
+  // globally routable (IANA IPv6 Special-Purpose Address Registry). These must
+  // fail-closed because the prefixes live at the START of the address, the ::
+  // compression (if any) sits in the middle/end, so the leading hextets are
+  // safe to read positionally from the split.
+  if (h0 === 0x2002) return true; // 6to4 2002::/16 — may encapsulate internal IPv4
+  if (h0 === 0x2001 && h1 === 0x0db8) return true; // documentation 2001:db8::/32
+  if (h0 === 0x2001 && (h1 & 0xfe00) === 0x0000) return true; // IETF protocol assignments 2001::/23 (Teredo, benchmarking, ORCHID, …)
+  if ((h0 & 0xfff0) === 0x3ff0) return true; // documentation 3fff::/20
+
+  return false; // remainder of 2000::/3 is genuine global-unicast
+}
+
+// Returns true when an IP literal (v4 or v6, no brackets) targets a
+// loopback/private/link-local/non-global range that must not be fetched.
+export function isBlockedIp(host: string): boolean {
+  const ipType = net.isIP(host);
+  if (ipType === 4) return isBlockedIpv4(host);
+  if (ipType === 6) return isBlockedIpv6(host);
+  // Not an IP literal; caller must resolve hostnames before classifying.
+  return false;
+}
+
+export function isSafeFetchUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return false;
+  }
+
+  // URL hostnames keep IPv6 in brackets; strip them for inspection.
+  let host = parsed.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
+
+  if (host === '' || host === 'localhost' || host.endsWith('.localhost')) {
+    return false;
+  }
+
+  if (host.includes(':')) {
+    return !isBlockedIpv6(host);
+  }
+
+  if (isBlockedIpv4(host)) {
+    return false;
+  }
+
+  return true;
+}
+
+export class UnsafeUrlError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsafeUrlError';
+  }
+}
+
+type DnsLookupAll = (
+  hostname: string,
+  options: { all: true },
+) => Promise<Array<{ address: string; family: number }>>;
+
+const defaultLookupAll: DnsLookupAll = (hostname, options) =>
+  dns.promises.lookup(hostname, options);
+
+/**
+ * Fail-closed SSRF guard for an outbound URL. Validates the scheme and host. For
+ * IP literals the range checks are applied directly; for hostnames every A/AAAA
+ * address returned by DNS is validated and the call is rejected if ANY resolved
+ * address falls in a blocked range. Throws UnsafeUrlError when unsafe.
+ *
+ * Returns the resolved addresses so callers can pin the connection to an
+ * already-validated IP (anti-rebinding).
+ */
+export async function assertSafePublicUrl(
+  url: string,
+  lookupAll: DnsLookupAll = defaultLookupAll,
+): Promise<{ host: string; addresses: string[] }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new UnsafeUrlError('Malformed URL');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new UnsafeUrlError(`Unsupported URL scheme: ${parsed.protocol}`);
+  }
+
+  let host = parsed.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
+
+  if (host === '' || host === 'localhost' || host.endsWith('.localhost')) {
+    throw new UnsafeUrlError('URL host is not allowed');
+  }
+
+  // IP literal: classify directly, no DNS.
+  const literalType = net.isIP(host);
+  if (literalType !== 0) {
+    if (isBlockedIp(host)) {
+      throw new UnsafeUrlError('URL host resolves to a blocked address range');
+    }
+    return { host, addresses: [host] };
+  }
+
+  // Hostname: resolve and validate EVERY address. Fail-closed if resolution
+  // fails or yields no addresses.
+  let resolved: Array<{ address: string; family: number }>;
+  try {
+    resolved = await lookupAll(host, { all: true });
+  } catch {
+    throw new UnsafeUrlError('Unable to resolve URL host');
+  }
+
+  if (!resolved || resolved.length === 0) {
+    throw new UnsafeUrlError('URL host did not resolve to any address');
+  }
+
+  const addresses = resolved.map((r) => r.address);
+  for (const address of addresses) {
+    if (isBlockedIp(address.toLowerCase())) {
+      throw new UnsafeUrlError('URL host resolves to a blocked address range');
+    }
+  }
+
+  return { host, addresses };
 }
 
 export function sanitizeFilename(filename: string): string {
