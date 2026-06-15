@@ -7,6 +7,7 @@ import type {
   DocsServiceLike,
   DriveServiceLike,
   GmailServiceLike,
+  PeopleServiceLike,
   SheetsServiceLike,
   TasksServiceLike,
 } from '../src/cli/program.js';

@@ -13,6 +13,12 @@ import {
   type UpdateTaskFields,
   TasksService,
 } from '../services/TasksService.js';
+import {
+  type ListContactsOptions,
+  type ListContactGroupsOptions,
+  type SearchContactsOptions,
+  PeopleService,
+} from '../services/PeopleService.js';
 import { AuthCliError, NotFoundCliError } from './errors.js';
 import { loadState, saveState } from './config.js';
 
@@ -136,6 +142,17 @@ export interface TasksServiceLike {
   deleteTask(tasklistId: string, taskId: string): Promise<void>;
 }
 
+export interface PeopleServiceLike {
+  listContacts(opts?: ListContactsOptions): Promise<unknown>;
+  searchContacts(query: string, opts?: SearchContactsOptions): Promise<unknown>;
+  getContact(resourceName: string, personFields?: string): Promise<unknown>;
+  createContact(person: Record<string, unknown>): Promise<unknown>;
+  updateContact(resourceName: string, person: Record<string, unknown>, updatePersonFields: string): Promise<unknown>;
+  deleteContact(resourceName: string): Promise<void>;
+  listContactGroups(opts?: ListContactGroupsOptions): Promise<unknown>;
+  getContactGroup(resourceName: string): Promise<unknown>;
+}
+
 export interface CliServiceFactories {
   gmail(email: string): Promise<GmailServiceLike>;
   calendar(email: string): Promise<CalendarServiceLike>;
@@ -143,6 +160,7 @@ export interface CliServiceFactories {
   docs(email: string): Promise<DocsServiceLike>;
   sheets(email: string): Promise<SheetsServiceLike>;
   tasks(email: string): Promise<TasksServiceLike>;
+  people(email: string): Promise<PeopleServiceLike>;
 }
 
 export async function resolveAccount(
@@ -203,6 +221,10 @@ export async function tasksFor(authManager: AuthManagerLike, cache: CacheManager
   return new TasksService(await getAuthClient(authManager, email), cache, email);
 }
 
+export async function peopleFor(authManager: AuthManagerLike, cache: CacheManager, email: string): Promise<PeopleServiceLike> {
+  return new PeopleService(await getAuthClient(authManager, email), cache, email);
+}
+
 export function createServiceFactories(authManager: AuthManagerLike, cache: CacheManager): CliServiceFactories {
   return {
     gmail: (email) => gmailFor(authManager, cache, email),
@@ -211,5 +233,6 @@ export function createServiceFactories(authManager: AuthManagerLike, cache: Cach
     docs: (email) => docsFor(authManager, cache, email),
     sheets: (email) => sheetsFor(authManager, cache, email),
     tasks: (email) => tasksFor(authManager, cache, email),
+    people: (email) => peopleFor(authManager, cache, email),
   };
 }
