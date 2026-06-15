@@ -15,7 +15,7 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - JSON-first output for scripts, plus table/jsonl/tsv formats
 - Gmail list/search/read/send/reply/forward/delete/archive/labels/drafts/threads/attachments/read-status commands
 - Calendar list/upcoming/search/freebusy/create/update/delete/respond/quickadd/conference/instances commands, plus secondary calendar create/delete
-- Drive list/get/upload/download/mkdir/share commands
+- Drive list/get/upload/download/mkdir/share/trash/restore/copy/batch-delete/revisions/shared-drives/shortcut commands (full CLI↔MCP parity)
 - Docs get/export/create commands
 - Sheets spreadsheet and values get/update/append commands
 - Existing MCP toolset for Gmail, Calendar, attachments, and templates
@@ -241,11 +241,20 @@ gws --dry-run drive upload ./proposal.pdf --name "Proposal.pdf" --parent FOLDER_
 gws drive download FILE_ID --output ./downloads/proposal.pdf
 gws drive mkdir "Client Docs" --parent PARENT_FOLDER_ID
 gws --dry-run drive share FILE_ID --role reader --type user --email client@example.com
+gws --dry-run drive trash FILE_ID
+gws --dry-run drive restore FILE_ID
+gws --dry-run drive copy FILE_ID --name "Copy.pdf" --parent FOLDER_ID
+gws --dry-run drive batch-delete FILE_ID_1 FILE_ID_2 FILE_ID_3
+gws --dry-run drive shortcut TARGET_FILE_ID --name "Shortcut" --parent FOLDER_ID
+gws drive revisions FILE_ID
+gws drive shared-drives --limit 20
 ```
 
 Allowed Drive share roles: `reader`, `commenter`, `writer`.
 
 Allowed Drive share types: `user`, `group`, `domain`, `anyone`.
+
+`drive trash`, `drive restore`, `drive copy`, `drive batch-delete`, and `drive shortcut` are mutating and support `--dry-run`. For safety, `drive trash` and `drive batch-delete` move files to the Drive trash (recoverable) rather than deleting permanently; `batch-delete` continues past per-file errors and reports a per-id status. `drive revisions` and `drive shared-drives` are read-only.
 
 ## Docs examples
 
@@ -331,7 +340,10 @@ node /absolute/path/to/mcp-gmail-calendar/dist/index.js
 - Gmail: `email_list`, `email_read`, `email_send`, `email_reply`, `email_forward`, `email_delete`, `email_mark_read`, `email_mark_unread`, `email_search`, labels, batch operations
 - Attachments: `email_list_attachments`, `email_download_attachment`
 - Calendar: `calendar_list`, `event_list`, `event_get`, `event_create`, `event_update`, `event_delete`, availability, invitation response, quick add, upcoming
+- Drive: `drive_list`, `drive_get`, `drive_upload`, `drive_download`, `drive_mkdir`, `drive_share`, `drive_trash`, `drive_restore`, `drive_copy`, `drive_batch_delete`, `drive_revisions`, `drive_shared_drives`, `drive_shortcut`
 - Templates: list, render, create
+
+Drive now has CLI↔MCP parity: every `gws drive` command has a matching `drive_*` MCP tool. As in the CLI, `drive_trash` and `drive_batch_delete` move files to the trash (recoverable) instead of deleting permanently.
 
 ## Development
 

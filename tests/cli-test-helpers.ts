@@ -105,6 +105,13 @@ export function createFakeServices(
     downloadFile: async (_fileId: string, outputPath: string) => ({ path: outputPath, size: 10 }),
     createFolder: async (name: string) => ({ id: 'folder-1', name }),
     shareFile: async (fileId: string, role: string, emailAddress?: string) => ({ id: fileId, role, emailAddress }),
+    trashFile: async (fileId: string) => ({ id: fileId, name: 'File', trashed: true } as never),
+    restoreFile: async (fileId: string) => ({ id: fileId, name: 'File' }),
+    copyFile: async (_fileId: string, options) => ({ id: 'copy-1', name: options?.name ?? 'Copy' }),
+    batchDelete: async (fileIds: string[]) => fileIds.map((fileId) => ({ fileId, status: 'success' as const })),
+    listRevisions: async () => [{ id: 'rev-1' }],
+    listSharedDrives: async () => ({ drives: [{ id: 'sd-1', name: 'Team Drive' }], nextPageToken: undefined }),
+    createShortcut: async (targetId: string, name: string) => ({ id: 'shortcut-1', name, mimeType: 'application/vnd.google-apps.shortcut', shortcutDetails: { targetId } } as never),
   };
 
   const docs: DocsServiceLike = {

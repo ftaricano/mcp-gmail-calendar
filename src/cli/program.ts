@@ -483,6 +483,42 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.share', fileId, role, email: opts.email, type } };
     return { account, permission: await (await runtime.services.drive(account)).shareFile(fileId, role, opts.email, type) };
   }));
+  drive.command('trash').argument('<fileId>').action((fileId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.trash', fileId } };
+    return { account, file: await (await runtime.services.drive(account)).trashFile(fileId) };
+  }));
+  drive.command('restore').argument('<fileId>').action((fileId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.restore', fileId } };
+    return { account, file: await (await runtime.services.drive(account)).restoreFile(fileId) };
+  }));
+  drive.command('copy').argument('<fileId>').option('--name <name>').option('--parent <id>', 'Parent folder id; repeatable', collectValues, []).action((fileId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const parents = opts.parent?.length ? opts.parent : undefined;
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.copy', fileId, name: opts.name, parents } };
+    return { account, file: await (await runtime.services.drive(account)).copyFile(fileId, { name: opts.name, parents }) };
+  }));
+  drive.command('batch-delete').description('Move multiple files to the trash (recoverable)').argument('<fileIds...>').action((fileIds) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.batch-delete', fileIds } };
+    return { account, results: await (await runtime.services.drive(account)).batchDelete(fileIds) };
+  }));
+  drive.command('revisions').argument('<fileId>').action((fileId) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    return { account, fileId, items: await (await runtime.services.drive(account)).listRevisions(fileId) };
+  }));
+  drive.command('shared-drives').description('List shared drives').option('--limit <n>', 'Maximum results', '50').option('--page-token <token>').action((opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const result = await (await runtime.services.drive(account)).listSharedDrives({ pageSize: parsePositiveInteger(opts.limit, 'limit'), pageToken: opts.pageToken });
+    return { account, items: result.drives, nextPageToken: result.nextPageToken };
+  }));
+  drive.command('shortcut').argument('<targetId>').requiredOption('--name <name>').option('--parent <id>', 'Parent folder id; repeatable', collectValues, []).action((targetId, opts) => runAction(program, runtime, async () => {
+    const account = await currentAccount(program, runtime);
+    const parents = opts.parent?.length ? opts.parent : undefined;
+    if (globals(program).dryRun) return { account, dryRun: true, would: { action: 'drive.shortcut', targetId, name: opts.name, parents } };
+    return { account, file: await (await runtime.services.drive(account)).createShortcut(targetId, opts.name, { parents }) };
+  }));
 
   const docs = program.command('docs').description('Google Docs commands');
   docs.command('get').argument('<documentId>').action((documentId) => runAction(program, runtime, async () => {

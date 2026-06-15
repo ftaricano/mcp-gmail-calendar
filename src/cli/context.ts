@@ -10,7 +10,8 @@ import {
   type ThreadListOptions,
 } from '../services/GmailService.js';
 import { CalendarService, type CalendarEvent, type FreeBusyQuery } from '../services/CalendarService.js';
-import { DriveService, type DriveFileRecord, type DriveListOptions, type DriveUploadOptions, type DriveDownloadResult } from '../services/DriveService.js';
+import { DriveService, type DriveFileRecord, type DriveListOptions, type DriveUploadOptions, type DriveDownloadResult, type DriveCopyOptions, type DriveShortcutOptions, type DriveSharedDriveListOptions, type DriveBatchDeleteResult } from '../services/DriveService.js';
+import type { drive_v3 } from 'googleapis';
 import { DocsService } from '../services/DocsService.js';
 import { SheetsService } from '../services/SheetsService.js';
 import { AuthCliError, NotFoundCliError } from './errors.js';
@@ -117,6 +118,13 @@ export interface DriveServiceLike {
     emailAddress?: string,
     type?: 'user' | 'group' | 'domain' | 'anyone',
   ): Promise<{ id?: string; role: string; emailAddress?: string; type: string }>;
+  trashFile(fileId: string): Promise<DriveFileRecord>;
+  restoreFile(fileId: string): Promise<DriveFileRecord>;
+  copyFile(fileId: string, options?: DriveCopyOptions): Promise<DriveFileRecord>;
+  batchDelete(fileIds: string[]): Promise<DriveBatchDeleteResult[]>;
+  listRevisions(fileId: string): Promise<drive_v3.Schema$Revision[]>;
+  listSharedDrives(options?: DriveSharedDriveListOptions): Promise<{ drives: drive_v3.Schema$Drive[]; nextPageToken?: string }>;
+  createShortcut(targetId: string, name: string, options?: DriveShortcutOptions): Promise<DriveFileRecord>;
 }
 
 export interface DocsServiceLike {
