@@ -35,58 +35,83 @@ const defaultLookupAll: DnsLookupAll = (hostname, options) =>
 // the actual TCP connect: the kernel-level lookup callback is the last code to
 // run before connecting, and it both re-checks the IP against the block ranges
 // and hands undici exactly the address(es) it validated.
+// dns.lookup-compatible callback. net.connect may invoke the custom lookup in
+// two modes: with `options.all === true` it expects an array of {address,
+// family}; otherwise it expects scalar (address, family). We support both and
+// always validate fail-closed before handing anything to the socket.
+type PinnedLookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | Array<{ address: string; family: number }>,
+  family?: number,
+) => void;
+
+// Re-validate the resolved IP(s) at connection time and pin the connection to
+// the already-validated address(es). This closes the TOCTOU/DNS-rebinding
+// window between validation and the actual TCP connect.
+export function pinnedLookup(
+  hostname: string,
+  options: { all?: boolean } | undefined,
+  callback: PinnedLookupCallback,
+): void {
+  const wantAll = options?.all === true;
+
+  const deliver = (entries: Array<{ address: string; family: number }>): void => {
+    for (const entry of entries) {
+      if (isBlockedIp(entry.address.toLowerCase())) {
+        callback(
+          new Error(
+            'SSRF guard: connection target resolved to a blocked address',
+          ) as NodeJS.ErrnoException,
+          '',
+        );
+        return;
+      }
+    }
+    if (wantAll) {
+      callback(null, entries);
+    } else {
+      // Scalar contract: first validated IP and its numeric family (4 or 6).
+      callback(null, entries[0].address, entries[0].family);
+    }
+  };
+
+  // If undici already has an IP literal, validate it directly (no DNS).
+  const literalType = net.isIP(hostname);
+  if (literalType !== 0) {
+    if (isBlockedIp(hostname.toLowerCase())) {
+      callback(
+        new Error('SSRF guard: connection target is a blocked address') as NodeJS.ErrnoException,
+        '',
+      );
+      return;
+    }
+    deliver([{ address: hostname, family: literalType }]);
+    return;
+  }
+
+  dns.lookup(hostname, { all: true }, (err, addresses) => {
+    if (err) {
+      callback(err, '');
+      return;
+    }
+    if (!addresses || addresses.length === 0) {
+      callback(
+        new Error('SSRF guard: host did not resolve') as NodeJS.ErrnoException,
+        '',
+      );
+      return;
+    }
+    deliver(addresses);
+  });
+}
+
 function createPinnedAgent(): Agent {
   return new Agent({
+    // Let undici/net negotiate Happy-Eyeballs so the scalar lookup path is also
+    // exercised correctly; the custom lookup remains fail-closed in both modes.
     connect: {
-      lookup: (
-        hostname: string,
-        _options: unknown,
-        callback: (
-          err: NodeJS.ErrnoException | null,
-          address: string | Array<{ address: string; family: number }>,
-          family?: number,
-        ) => void,
-      ): void => {
-        // If undici already has an IP literal, validate it directly.
-        const literalType = net.isIP(hostname);
-        if (literalType !== 0) {
-          if (isBlockedIp(hostname.toLowerCase())) {
-            callback(
-              new Error('SSRF guard: connection target is a blocked address') as NodeJS.ErrnoException,
-              '',
-            );
-            return;
-          }
-          callback(null, hostname, literalType);
-          return;
-        }
-
-        dns.lookup(hostname, { all: true }, (err, addresses) => {
-          if (err) {
-            callback(err, '');
-            return;
-          }
-          if (!addresses || addresses.length === 0) {
-            callback(
-              new Error('SSRF guard: host did not resolve') as NodeJS.ErrnoException,
-              '',
-            );
-            return;
-          }
-          for (const entry of addresses) {
-            if (isBlockedIp(entry.address.toLowerCase())) {
-              callback(
-                new Error(
-                  'SSRF guard: connection target resolved to a blocked address',
-                ) as NodeJS.ErrnoException,
-                '',
-              );
-              return;
-            }
-          }
-          callback(null, addresses);
-        });
-      },
+      autoSelectFamily: true,
+      lookup: pinnedLookup,
     },
   });
 }

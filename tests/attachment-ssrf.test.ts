@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 
 import { isSafeFetchUrl, assertSafePublicUrl } from '../src/utils/Validator.js';
-import { AttachmentHandler, safeFetch } from '../src/utils/AttachmentHandler.js';
+import { AttachmentHandler, safeFetch, pinnedLookup } from '../src/utils/AttachmentHandler.js';
 
 type LookupResult = Array<{ address: string; family: number }>;
 
@@ -36,6 +36,12 @@ test('isSafeFetchUrl rejects loopback, private, and metadata targets', () => {
     'http://[fec0::1]/', // site-local (deprecated) — must fail-closed via allowlist
     'http://[ff02::1]/', // multicast — must fail-closed via allowlist
     'http://0.0.0.0/',
+    'http://100.64.0.1/', // CGNAT 100.64.0.0/10
+    'http://192.0.2.1/', // TEST-NET-1
+    'http://198.18.0.1/', // benchmark 198.18.0.0/15
+    'http://203.0.113.1/', // TEST-NET-3
+    'http://240.0.0.1/', // reserved 240.0.0.0/4
+    'http://224.0.0.1/', // multicast 224.0.0.0/4
     'ftp://example.com/file', // non-http(s) protocol
     'file:///etc/passwd',
   ];
@@ -265,5 +271,54 @@ test('createFromUrl downloads normally from a public host that resolves to a pub
     delete process.env.ATTACHMENT_STORAGE_DIR;
   } else {
     process.env.ATTACHMENT_STORAGE_DIR = prevStorage;
+  }
+});
+
+test('pinnedLookup delivers an array of objects when called with { all: true }', async () => {
+  // IP literal path avoids real DNS; a public IPv4 must be validated and passed.
+  const result = await new Promise<unknown>((resolve, reject) => {
+    pinnedLookup('93.184.216.34', { all: true }, (err, address, family) => {
+      if (err) return reject(err);
+      resolve({ address, family });
+    });
+  });
+
+  const { address, family } = result as {
+    address: unknown;
+    family: number | undefined;
+  };
+  assert.ok(Array.isArray(address), 'all:true must yield an array');
+  assert.deepEqual(address, [{ address: '93.184.216.34', family: 4 }]);
+  assert.equal(family, undefined);
+});
+
+test('pinnedLookup delivers scalar (address, family) when all is falsy', async () => {
+  const result = await new Promise<{ address: unknown; family: unknown }>(
+    (resolve, reject) => {
+      pinnedLookup('93.184.216.34', { all: false }, (err, address, family) => {
+        if (err) return reject(err);
+        resolve({ address, family });
+      });
+    },
+  );
+
+  assert.equal(typeof result.address, 'string', 'falsy all must yield a scalar address');
+  assert.equal(result.address, '93.184.216.34');
+  assert.equal(result.family, 4);
+});
+
+test('pinnedLookup fails closed for a blocked literal in both modes', async () => {
+  for (const opts of [{ all: true }, { all: false }]) {
+    await assert.rejects(
+      () =>
+        new Promise((resolve, reject) => {
+          pinnedLookup('127.0.0.1', opts, (err, address, family) => {
+            if (err) return reject(err);
+            resolve({ address, family });
+          });
+        }),
+      /blocked address/i,
+      `expected blocked literal to fail with all=${opts.all}`,
+    );
   }
 });
