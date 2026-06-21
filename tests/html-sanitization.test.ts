@@ -81,3 +81,37 @@ test('validateHtmlContent skips checks only when ENABLE_HTML_SANITIZATION="false
     assert.equal(validateHtmlContent('<script>alert(1)</script>'), true);
   });
 });
+
+// Reverse tabnabbing (FIX 2): anchors with target="_blank" must gain
+// rel="noopener noreferrer" during sanitization so the opened page cannot reach
+// back into window.opener.
+test('EmailParser injects rel=noopener noreferrer on target=_blank anchors', () => {
+  withEnv(undefined, () => {
+    const parser = new EmailParser();
+    const html = '<p><a href="https://example.com" target="_blank">click</a></p>';
+    const email = parser.parseGmailMessage(buildHtmlMessage(html));
+    assert.ok(email.bodyHtml !== undefined);
+    assert.match(email.bodyHtml!, /rel="[^"]*noopener[^"]*"/, 'rel must contain noopener');
+    assert.match(email.bodyHtml!, /rel="[^"]*noreferrer[^"]*"/, 'rel must contain noreferrer');
+  });
+});
+
+test('EmailParser preserves existing rel tokens while adding noopener/noreferrer on target=_blank', () => {
+  withEnv(undefined, () => {
+    const parser = new EmailParser();
+    const html = '<a href="https://example.com" target="_blank" rel="nofollow">x</a>';
+    const email = parser.parseGmailMessage(buildHtmlMessage(html));
+    assert.match(email.bodyHtml!, /rel="[^"]*nofollow[^"]*"/, 'existing rel token must be preserved');
+    assert.match(email.bodyHtml!, /rel="[^"]*noopener[^"]*"/);
+    assert.match(email.bodyHtml!, /rel="[^"]*noreferrer[^"]*"/);
+  });
+});
+
+test('EmailParser does not add rel to anchors without target=_blank', () => {
+  withEnv(undefined, () => {
+    const parser = new EmailParser();
+    const html = '<a href="https://example.com">x</a>';
+    const email = parser.parseGmailMessage(buildHtmlMessage(html));
+    assert.ok(!/rel=/.test(email.bodyHtml!), 'same-tab anchors should not gain a rel attribute');
+  });
+});

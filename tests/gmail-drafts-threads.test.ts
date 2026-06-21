@@ -30,6 +30,10 @@ function makeService(captured: Record<string, any>): GmailService {
           captured.messagesModify = input;
           return { data: { id: input.id } };
         },
+        send: async (input: any) => {
+          captured.messagesSend = input;
+          return { data: { id: 'sent-msg' } };
+        },
       },
       drafts: {
         list: async (input: any) => {
@@ -273,4 +277,67 @@ test('handleSendEmail rejects attachments missing filename/content', async () =>
     }),
     (err: any) => err.name === 'McpError',
   );
+});
+
+// Outbound HTML screening (FIX 1): validateHtmlContent is wired into the shared
+// buildEmailMessage choke point, so dangerous HTML is rejected before the MIME is
+// base64url-encoded — on both the send and the draft paths. The default template
+// wraps bodyHtml via {{{content}}} (raw, unescaped), so a <script> in bodyHtml
+// would otherwise ship verbatim; these tests prove it is blocked.
+async function withInitializedTemplates(fn: () => Promise<void>) {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gmail-sec-'));
+  const prevPath = process.env.TEMPLATE_PATH;
+  const prevSanitize = process.env.ENABLE_HTML_SANITIZATION;
+  process.env.TEMPLATE_PATH = tmpDir;
+  // Secure-by-default: ensure screening is active regardless of ambient env.
+  delete process.env.ENABLE_HTML_SANITIZATION;
+  try {
+    await fn();
+  } finally {
+    if (prevPath === undefined) delete process.env.TEMPLATE_PATH;
+    else process.env.TEMPLATE_PATH = prevPath;
+    if (prevSanitize === undefined) delete process.env.ENABLE_HTML_SANITIZATION;
+    else process.env.ENABLE_HTML_SANITIZATION = prevSanitize;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+test('sendEmail rejects outbound bodyHtml containing <script> before hitting the API', async () => {
+  const captured: Record<string, any> = {};
+  const service = makeService(captured);
+  await withInitializedTemplates(async () => {
+    await service.templateEngine.initialize();
+    await assert.rejects(
+      () => service.sendEmail({
+        to: 'dest@example.com',
+        subject: 'XSS',
+        bodyHtml: '<p>hi</p><script>alert(1)</script>',
+      }),
+      (err: any) => {
+        assert.match(err.message, /Outbound HTML rejected/);
+        return true;
+      },
+    );
+    assert.equal(captured.messagesSend, undefined, 'send API must not be called for rejected HTML');
+  });
+});
+
+test('createDraft rejects outbound bodyHtml containing <script> before hitting the API', async () => {
+  const captured: Record<string, any> = {};
+  const service = makeService(captured);
+  await withInitializedTemplates(async () => {
+    await service.templateEngine.initialize();
+    await assert.rejects(
+      () => service.createDraft({
+        to: 'dest@example.com',
+        subject: 'XSS',
+        bodyHtml: '<p>hi</p><script>alert(1)</script>',
+      }),
+      (err: any) => {
+        assert.match(err.message, /Outbound HTML rejected/);
+        return true;
+      },
+    );
+    assert.equal(captured.draftsCreate, undefined, 'drafts.create must not be called for rejected HTML');
+  });
 });
