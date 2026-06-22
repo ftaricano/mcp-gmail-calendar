@@ -9,7 +9,7 @@ import { EmailParser } from '../utils/EmailParser.js';
 import fs from 'fs/promises';
 import path from 'path';
 import mime from 'mime-types';
-import { sanitizeFilename } from '../utils/Validator.js';
+import { sanitizeFilename, validateHtmlContent } from '../utils/Validator.js';
 import { z } from 'zod';
 
 export interface EmailListOptions {
@@ -341,6 +341,14 @@ export class GmailService {
   }
 
   private async buildEmailMessage(options: DraftWriteOptions): Promise<string> {
+    // Screen outbound HTML for dangerous patterns (<script>, <iframe>, javascript:,
+    // inline event handlers) before it is base64url-encoded into the MIME payload.
+    // This is the shared choke point for sendEmail, createDraft, updateDraft, reply
+    // and forward, so screening here covers every send/draft path in one place.
+    if (options.bodyHtml && !validateHtmlContent(options.bodyHtml)) {
+      throw new Error('Outbound HTML rejected: dangerous content detected (script/iframe/javascript:/event handlers)');
+    }
+
     const boundary = `boundary_${Date.now()}`;
     const to = options.to ? (Array.isArray(options.to) ? options.to : [options.to]) : [];
     const cc = options.cc ? (Array.isArray(options.cc) ? options.cc : [options.cc]) : [];
