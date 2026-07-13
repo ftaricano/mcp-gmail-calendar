@@ -30,6 +30,10 @@ function makeService(captured: Record<string, any>): GmailService {
           captured.messagesModify = input;
           return { data: { id: input.id } };
         },
+        send: async (input: any) => {
+          captured.messagesSend = input;
+          return { data: { id: 'sent-msg' } };
+        },
       },
       drafts: {
         list: async (input: any) => {
@@ -162,12 +166,16 @@ test('handleCreateDraft rejects a numeric threadId', async () => {
 
 test('createDraft renders templateId into the raw body (not empty)', async () => {
   const captured: Record<string, any> = {};
-  const service = makeService(captured);
 
   // Register a template in an isolated temp dir to avoid touching repo templates.
+  // TemplateEngine binds templatesPath from process.env at construction, so the
+  // env must be set BEFORE makeService() builds the service (the test runner loads
+  // every file in one process and interleaves async bodies — constructing first
+  // would race a concurrent file mutating TEMPLATE_PATH and capture ./templates).
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gmail-tpl-'));
   const prevPath = process.env.TEMPLATE_PATH;
   process.env.TEMPLATE_PATH = tmpDir;
+  const service = makeService(captured);
   try {
     await service.templateEngine.createTemplate(
       'draft_tpl',
@@ -198,12 +206,14 @@ test('createDraft renders templateId into the raw body (not empty)', async () =>
 
 test('createDraft with bodyHtml produces a non-empty HTML body in raw', async () => {
   const captured: Record<string, any> = {};
-  const service = makeService(captured);
 
   // wrapInDefaultTemplate needs the default professional_basic template available.
+  // Set TEMPLATE_PATH before makeService() so the engine binds the temp dir at
+  // construction (see note in the templateId test above — shared-env race).
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gmail-tpl-'));
   const prevPath = process.env.TEMPLATE_PATH;
   process.env.TEMPLATE_PATH = tmpDir;
+  const service = makeService(captured);
   try {
     await service.templateEngine.initialize();
 
@@ -273,4 +283,73 @@ test('handleSendEmail rejects attachments missing filename/content', async () =>
     }),
     (err: any) => err.name === 'McpError',
   );
+});
+
+// Outbound HTML screening (FIX 1): validateHtmlContent is wired into the shared
+// buildEmailMessage choke point, so dangerous HTML is rejected before the MIME is
+// base64url-encoded — on both the send and the draft paths. The default template
+// wraps bodyHtml via {{{content}}} (raw, unescaped), so a <script> in bodyHtml
+// would otherwise ship verbatim; these tests prove it is blocked.
+// Build the service INSIDE this helper, after the env vars are set, so the
+// TemplateEngine (which reads TEMPLATE_PATH at construction) binds the temp dir.
+// Constructing before setting the env would race a concurrent test file mutating
+// the same shared globals and capture ./templates. prevSanitize is restored in
+// finally so the delete below never leaks into other interleaved files.
+async function withInitializedTemplates(
+  captured: Record<string, any>,
+  fn: (service: GmailService) => Promise<void>,
+) {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gmail-sec-'));
+  const prevPath = process.env.TEMPLATE_PATH;
+  const prevSanitize = process.env.ENABLE_HTML_SANITIZATION;
+  process.env.TEMPLATE_PATH = tmpDir;
+  // Secure-by-default: ensure screening is active regardless of ambient env.
+  delete process.env.ENABLE_HTML_SANITIZATION;
+  try {
+    await fn(makeService(captured));
+  } finally {
+    if (prevPath === undefined) delete process.env.TEMPLATE_PATH;
+    else process.env.TEMPLATE_PATH = prevPath;
+    if (prevSanitize === undefined) delete process.env.ENABLE_HTML_SANITIZATION;
+    else process.env.ENABLE_HTML_SANITIZATION = prevSanitize;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+test('sendEmail rejects outbound bodyHtml containing <script> before hitting the API', async () => {
+  const captured: Record<string, any> = {};
+  await withInitializedTemplates(captured, async (service) => {
+    await service.templateEngine.initialize();
+    await assert.rejects(
+      () => service.sendEmail({
+        to: 'dest@example.com',
+        subject: 'XSS',
+        bodyHtml: '<p>hi</p><script>alert(1)</script>',
+      }),
+      (err: any) => {
+        assert.match(err.message, /Outbound HTML rejected/);
+        return true;
+      },
+    );
+    assert.equal(captured.messagesSend, undefined, 'send API must not be called for rejected HTML');
+  });
+});
+
+test('createDraft rejects outbound bodyHtml containing <script> before hitting the API', async () => {
+  const captured: Record<string, any> = {};
+  await withInitializedTemplates(captured, async (service) => {
+    await service.templateEngine.initialize();
+    await assert.rejects(
+      () => service.createDraft({
+        to: 'dest@example.com',
+        subject: 'XSS',
+        bodyHtml: '<p>hi</p><script>alert(1)</script>',
+      }),
+      (err: any) => {
+        assert.match(err.message, /Outbound HTML rejected/);
+        return true;
+      },
+    );
+    assert.equal(captured.draftsCreate, undefined, 'drafts.create must not be called for rejected HTML');
+  });
 });

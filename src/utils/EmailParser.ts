@@ -152,7 +152,7 @@ export class EmailParser {
         'div', 'span', 'blockquote', 'pre', 'code',
       ],
       allowedAttributes: {
-        'a': ['href', 'title', 'target'],
+        'a': ['href', 'title', 'target', 'rel'],
         'img': ['src', 'alt', 'title', 'width', 'height'],
         'div': ['style'],
         'span': ['style'],
@@ -177,6 +177,22 @@ export class EmailParser {
       allowedSchemes: ['http', 'https', 'mailto', 'tel'],
       disallowedTagsMode: 'discard',
       allowedIframeDomains: [],
+      transformTags: {
+        // Reverse tabnabbing: any anchor opening a new browsing context
+        // (target="_blank") must carry rel="noopener noreferrer" so the opened
+        // page cannot reach back into window.opener.
+        a: (tagName, attribs) => {
+          if (attribs.target === '_blank') {
+            const rel = new Set(
+              (attribs.rel ? attribs.rel.split(/\s+/) : []).filter(Boolean),
+            );
+            rel.add('noopener');
+            rel.add('noreferrer');
+            attribs.rel = Array.from(rel).join(' ');
+          }
+          return { tagName, attribs };
+        },
+      },
     });
   }
 

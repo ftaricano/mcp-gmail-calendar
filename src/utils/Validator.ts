@@ -463,7 +463,10 @@ export function validateHtmlContent(html: string): boolean {
     /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
     /<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi,
     /javascript:/gi,
-    /on\w+\s*=/gi, // Event handlers like onclick, onload, etc.
+    // Inline event handlers (onclick, onload, ...). Require a tag/attribute
+    // boundary before "on" so legitimate text such as `content="..."` does not
+    // match the "on" inside words like "c-on-tent".
+    /(?:^|[\s"'`<>/])on\w+\s*=/gi,
   ];
   
   return !dangerousPatterns.some(pattern => pattern.test(html));
