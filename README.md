@@ -245,7 +245,7 @@ gws cal events conference EVENT_ID --type hangoutsMeet
 ```bash
 gws drive list --query "mimeType != 'application/vnd.google-apps.folder'" --limit 20
 gws drive get FILE_ID
-gws --dry-run drive upload ./proposal.pdf --name "Proposal.pdf" --parent FOLDER_ID
+gws --dry-run drive upload --path ./proposal.pdf --name "Proposal.pdf" --parent FOLDER_ID
 gws drive download FILE_ID --output ./downloads/proposal.pdf
 gws drive mkdir "Client Docs" --parent PARENT_FOLDER_ID
 gws --dry-run drive share FILE_ID --role reader --type user --email client@example.com
@@ -269,7 +269,7 @@ Allowed Drive share types: `user`, `group`, `domain`, `anyone`.
 ```bash
 gws docs get DOCUMENT_ID
 gws docs export DOCUMENT_ID --mime-type pdf --output ./doc.pdf
-gws docs create "Meeting Notes" --content "Initial notes"
+gws docs create --title "Meeting Notes" --content "Initial notes"
 gws --dry-run docs insert-text DOCUMENT_ID --text "Appended line" --index 1
 gws --dry-run docs replace-text DOCUMENT_ID --find "{{name}}" --replace "Ferd" --match-case
 gws --dry-run docs insert-table DOCUMENT_ID --rows 3 --columns 2 --index 1
@@ -288,9 +288,9 @@ operations not covered by the typed helpers (text styling, paragraph formatting,
 
 ```bash
 gws sheets get SPREADSHEET_ID
-gws sheets values get SPREADSHEET_ID "Sheet1!A1:C10"
-gws --dry-run sheets values update SPREADSHEET_ID "Sheet1!A1:B2" --values '[["a","b"],["c","d"]]' --value-input-option USER_ENTERED
-gws sheets values append SPREADSHEET_ID "Sheet1!A:B" --values '[["new","row"]]'
+gws sheets values SPREADSHEET_ID --range "Sheet1!A1:C10"
+gws --dry-run sheets update SPREADSHEET_ID --range "Sheet1!A1:B2" --values '[["a","b"],["c","d"]]' --value-input-option USER_ENTERED
+gws sheets append SPREADSHEET_ID --range "Sheet1!A:B" --values '[["new","row"]]'
 gws --dry-run sheets add-sheet SPREADSHEET_ID --title "Q3" --rows 200 --columns 12
 gws --dry-run sheets rename-sheet SPREADSHEET_ID --sheet-id 0 --title "Summary"
 gws --dry-run sheets delete-sheet SPREADSHEET_ID --sheet-id 123456
