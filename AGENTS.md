@@ -1,6 +1,6 @@
 # AGENTS.md -- mcp-gmail-calendar
 
-As regras operacionais deste repo sao canonicas em [CLAUDE.md](CLAUDE.md) (fonte unica para Claude/Codex/Hermes). Leia-o antes de tocar em codigo.
+As regras operacionais deste repo sao canonicas em [CLAUDE.md](CLAUDE.md) (fonte unica para Claude/Codex). Leia-o antes de tocar em codigo.
 
 TL;DR das invariantes:
 - Credenciais nunca no repo -- `credentials.json` e tokens ficam em `~/.config/gws/` ou paths do `.env`; gitignored.
