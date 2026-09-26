@@ -1,15 +1,15 @@
-# gws — Google Workspace CLI + MCP
+# mcp-google-workspace — Google Workspace CLI + MCP
 
 Status: beta
 
-`gws` is a CLI-first Google Workspace tool for local automation. It exposes Gmail, Google Calendar, Google Drive, Google Docs, and Google Sheets workflows from the terminal, with the existing MCP server preserved as `gws-mcp` for assistant clients.
+`gwcli` is a CLI-first Google Workspace tool for local automation. It exposes Gmail, Google Calendar, Google Drive, Google Docs, and Google Sheets workflows from the terminal, with the existing MCP server available as `mcp-google-workspace` for assistant clients.
 
 The direction is deliberate: the CLI is the primary product surface; MCP is a compatibility adapter.
 
 ## What it includes today
 
-- `gws` CLI binary for account, config, Gmail, Calendar, Drive, Docs, Sheets, and local diagnostics
-- `gws-mcp` binary preserving the existing stdio MCP server
+- `gwcli` CLI binary for account, config, Gmail, Calendar, Drive, Docs, Sheets, and local diagnostics
+- `mcp-google-workspace` binary preserving the existing stdio MCP server (`gws-mcp` kept as a legacy alias)
 - OAuth2 for personal Gmail and Google Workspace accounts
 - Multi-account state via `~/.config/gws/state.json`
 - JSON-first output for scripts, plus table/jsonl/tsv formats
@@ -22,11 +22,23 @@ The direction is deliberate: the CLI is the primary product surface; MCP is a co
 - Contacts (People) list/search/get/create/update/delete and contact-group list/get commands
 - Existing MCP toolset for Gmail, Calendar, attachments, templates, and Sheets
 
+## Migrating from `gws` (2.0.0)
+
+Version 2.0.0 renames the binaries. The old `gws` name collided with Google's official Workspace CLI.
+
+| Before | Now |
+|---|---|
+| `gws` | `gwcli` |
+| `gws-mcp` | `mcp-google-workspace` (`gws-mcp` still works as an alias) |
+| `@mcp/gmail-calendar` | `@ftaricano/mcp-google-workspace` |
+
+The config directory (`~/.config/gws`) and the `GWS_*` environment variables are unchanged, so existing accounts and tokens keep working. Run `npm link` again from the new checkout to install `gwcli`.
+
 ## Install
 
 ```bash
-git clone https://github.com/ftaricano/mcp-gmail-calendar.git
-cd mcp-gmail-calendar
+git clone https://github.com/ftaricano/mcp-google-workspace.git
+cd mcp-google-workspace
 npm install
 npm run build
 npm link
@@ -45,11 +57,11 @@ Prerequisites:
   - Google Tasks API
   - Google People API
 
-If you already authenticated before Drive/Docs/Sheets support existed, run `gws auth login --account you@example.com --type workspace` again so Google grants the expanded OAuth scopes.
+If you already authenticated before Drive/Docs/Sheets support existed, run `gwcli auth login --account you@example.com --type workspace` again so Google grants the expanded OAuth scopes.
 
-> **⚠️ Tasks requires re-consent.** Google Tasks adds a brand-new OAuth scope (`https://www.googleapis.com/auth/tasks`). Any account authenticated before Tasks support existed must re-run `gws auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Tasks call returns HTTP 403. `gws auth login` detects when a stored account is missing a current scope and re-triggers the Google consent screen automatically (it is no longer a no-op for already-known accounts).
+> **⚠️ Tasks requires re-consent.** Google Tasks adds a brand-new OAuth scope (`https://www.googleapis.com/auth/tasks`). Any account authenticated before Tasks support existed must re-run `gwcli auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Tasks call returns HTTP 403. `gwcli auth login` detects when a stored account is missing a current scope and re-triggers the Google consent screen automatically (it is no longer a no-op for already-known accounts).
 
-> **⚠️ Contacts requires re-consent.** Google People / Contacts adds a brand-new OAuth scope (`https://www.googleapis.com/auth/contacts`). Any account authenticated before Contacts support existed must re-run `gws auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Contacts call returns HTTP 403. As with Tasks, `gws auth login` auto-detects the missing scope and re-triggers the Google consent screen.
+> **⚠️ Contacts requires re-consent.** Google People / Contacts adds a brand-new OAuth scope (`https://www.googleapis.com/auth/contacts`). Any account authenticated before Contacts support existed must re-run `gwcli auth login --account you@example.com --type workspace` to grant it. Without re-consent, every Contacts call returns HTTP 403. As with Tasks, `gwcli auth login` auto-detects the missing scope and re-triggers the Google consent screen.
 
 Configure environment:
 
@@ -71,44 +83,44 @@ LOG_LEVEL=info
 Authenticate:
 
 ```bash
-gws auth login --account you@example.com --type workspace
+gwcli auth login --account you@example.com --type workspace
 ```
 
 List accounts:
 
 ```bash
-gws auth list
+gwcli auth list
 ```
 
 Set the default account:
 
 ```bash
-gws auth switch you@example.com
+gwcli auth switch you@example.com
 ```
 
 Show current account:
 
 ```bash
-gws auth current
+gwcli auth current
 ```
 
 Inspect CLI paths:
 
 ```bash
-gws config path
+gwcli config path
 ```
 
 Set config values:
 
 ```bash
-gws config set timezone America/Sao_Paulo
-gws config list
+gwcli config set timezone America/Sao_Paulo
+gwcli config list
 ```
 
 Run local diagnostics without printing secrets:
 
 ```bash
-gws doctor --format json
+gwcli doctor --format json
 ```
 
 ## Gmail examples
@@ -116,78 +128,78 @@ gws doctor --format json
 List recent mail:
 
 ```bash
-gws mail list --query "is:unread" --limit 10
+gwcli mail list --query "is:unread" --limit 10
 ```
 
 Read and search:
 
 ```bash
-gws mail read MESSAGE_ID
-gws mail search "from:client@example.com has:attachment" --limit 20
+gwcli mail read MESSAGE_ID
+gwcli mail search "from:client@example.com has:attachment" --limit 20
 ```
 
 Send, reply, forward:
 
 ```bash
-gws mail send --to client@example.com --subject "Proposal" --body "Attached." --attachment ./proposal.pdf
-gws mail reply MESSAGE_ID --body "Recebido, obrigado."
-gws mail forward MESSAGE_ID --to teammate@example.com --body "Please review."
+gwcli mail send --to client@example.com --subject "Proposal" --body "Attached." --attachment ./proposal.pdf
+gwcli mail reply MESSAGE_ID --body "Recebido, obrigado."
+gwcli mail forward MESSAGE_ID --to teammate@example.com --body "Please review."
 ```
 
 Archive and delete:
 
 ```bash
-gws mail archive MESSAGE_ID
-gws mail delete MESSAGE_ID  # move to trash
+gwcli mail archive MESSAGE_ID
+gwcli mail delete MESSAGE_ID  # move to trash
 ```
 
 Drafts:
 
 ```bash
-gws mail drafts list --query "is:draft" --limit 10
-gws mail drafts get DRAFT_ID
-gws mail drafts create --to client@example.com --subject "Proposal" --body "Draft body"
-gws mail drafts send DRAFT_ID
-gws mail drafts delete DRAFT_ID
+gwcli mail drafts list --query "is:draft" --limit 10
+gwcli mail drafts get DRAFT_ID
+gwcli mail drafts create --to client@example.com --subject "Proposal" --body "Draft body"
+gwcli mail drafts send DRAFT_ID
+gwcli mail drafts delete DRAFT_ID
 ```
 
 Threads:
 
 ```bash
-gws mail threads list --query "from:client@example.com" --label INBOX --limit 10
-gws mail threads get THREAD_ID
-gws mail threads modify THREAD_ID --add-label LABEL_ID --remove-label INBOX
-gws mail threads trash THREAD_ID
+gwcli mail threads list --query "from:client@example.com" --label INBOX --limit 10
+gwcli mail threads get THREAD_ID
+gwcli mail threads modify THREAD_ID --add-label LABEL_ID --remove-label INBOX
+gwcli mail threads trash THREAD_ID
 ```
 
 Dry-run destructive or mutating actions:
 
 ```bash
-gws --dry-run mail delete MESSAGE_ID
-gws --dry-run mail archive MESSAGE_ID
-gws --dry-run mail drafts create --to client@example.com --subject "Proposal" --body "Draft body"
-gws --dry-run mail drafts send DRAFT_ID
-gws --dry-run mail threads modify THREAD_ID --add-label LABEL_ID
-gws --dry-run mail mark-read MESSAGE_ID
+gwcli --dry-run mail delete MESSAGE_ID
+gwcli --dry-run mail archive MESSAGE_ID
+gwcli --dry-run mail drafts create --to client@example.com --subject "Proposal" --body "Draft body"
+gwcli --dry-run mail drafts send DRAFT_ID
+gwcli --dry-run mail threads modify THREAD_ID --add-label LABEL_ID
+gwcli --dry-run mail mark-read MESSAGE_ID
 ```
 
 Labels and attachments:
 
 ```bash
-gws mail labels
-gws mail labels create "Clients"
-gws mail labels add MESSAGE_ID LABEL_ID
-gws mail labels remove MESSAGE_ID LABEL_ID
+gwcli mail labels
+gwcli mail labels create "Clients"
+gwcli mail labels add MESSAGE_ID LABEL_ID
+gwcli mail labels remove MESSAGE_ID LABEL_ID
 
-gws mail attachments list MESSAGE_ID
-gws mail attachments download MESSAGE_ID ATTACHMENT_ID --output ./downloads/file.pdf
+gwcli mail attachments list MESSAGE_ID
+gwcli mail attachments download MESSAGE_ID ATTACHMENT_ID --output ./downloads/file.pdf
 ```
 
 Legacy aliases remain available:
 
 ```bash
-gws mail attachments-list MESSAGE_ID
-gws mail attachment-download MESSAGE_ID ATTACHMENT_ID --output ./downloads/file.pdf
+gwcli mail attachments-list MESSAGE_ID
+gwcli mail attachment-download MESSAGE_ID ATTACHMENT_ID --output ./downloads/file.pdf
 ```
 
 ## Calendar examples
@@ -195,67 +207,67 @@ gws mail attachment-download MESSAGE_ID ATTACHMENT_ID --output ./downloads/file.
 List calendars and events:
 
 ```bash
-gws cal calendars
-gws cal events upcoming --days 7 --limit 10
-gws cal events list --from 2026-05-01T00:00:00-03:00 --to 2026-05-08T00:00:00-03:00
-gws cal events search "planning" --limit 5
+gwcli cal calendars
+gwcli cal events upcoming --days 7 --limit 10
+gwcli cal events list --from 2026-05-01T00:00:00-03:00 --to 2026-05-08T00:00:00-03:00
+gwcli cal events search "planning" --limit 5
 ```
 
 Secondary calendars (create is mutating, delete is destructive — both support `--dry-run`):
 
 ```bash
-gws --dry-run cal calendars create --summary "Project X" --description "Tracking" --timezone America/Sao_Paulo
-gws cal calendars create --summary "Project X"
-gws --dry-run cal calendars delete CALENDAR_ID
+gwcli --dry-run cal calendars create --summary "Project X" --description "Tracking" --timezone America/Sao_Paulo
+gwcli cal calendars create --summary "Project X"
+gwcli --dry-run cal calendars delete CALENDAR_ID
 ```
 
 Recurring event occurrences (read-only):
 
 ```bash
-gws cal events instances RECURRING_EVENT_ID --from 2026-05-01T00:00:00-03:00 --to 2026-06-01T00:00:00-03:00 --limit 20
+gwcli cal events instances RECURRING_EVENT_ID --from 2026-05-01T00:00:00-03:00 --to 2026-06-01T00:00:00-03:00 --limit 20
 ```
 
 Each instance returned by `cal events instances` has its own `id`. To edit or delete a **single occurrence**, pass that instance id to the regular update/delete commands — the Calendar API treats each instance as an independent event:
 
 ```bash
-gws cal events update INSTANCE_ID --summary "Moved this one only"
-gws cal events delete INSTANCE_ID
+gwcli cal events update INSTANCE_ID --summary "Moved this one only"
+gwcli cal events delete INSTANCE_ID
 ```
 
 Create and update events:
 
 ```bash
-gws cal events create --summary "Client call" --start 2026-05-03T10:00:00-03:00 --end 2026-05-03T11:00:00-03:00 --attendee client@example.com --meet
+gwcli cal events create --summary "Client call" --start 2026-05-03T10:00:00-03:00 --end 2026-05-03T11:00:00-03:00 --attendee client@example.com --meet
 
-gws cal events update EVENT_ID --summary "Updated title" --send-notifications
+gwcli cal events update EVENT_ID --summary "Updated title" --send-notifications
 ```
 
 Free/busy, invitation response, quick add, Meet conference:
 
 ```bash
-gws cal freebusy --from 2026-05-01T00:00:00-03:00 --to 2026-05-02T00:00:00-03:00 --calendar primary
+gwcli cal freebusy --from 2026-05-01T00:00:00-03:00 --to 2026-05-02T00:00:00-03:00 --calendar primary
 
-gws --dry-run cal events respond EVENT_ID --response accepted --comment "Confirmado"
-gws cal events quickadd "Lunch with Ana tomorrow noon"
-gws cal events conference EVENT_ID --type hangoutsMeet
+gwcli --dry-run cal events respond EVENT_ID --response accepted --comment "Confirmado"
+gwcli cal events quickadd "Lunch with Ana tomorrow noon"
+gwcli cal events conference EVENT_ID --type hangoutsMeet
 ```
 
 ## Drive examples
 
 ```bash
-gws drive list --query "mimeType != 'application/vnd.google-apps.folder'" --limit 20
-gws drive get FILE_ID
-gws --dry-run drive upload --path ./proposal.pdf --name "Proposal.pdf" --parent FOLDER_ID
-gws drive download FILE_ID --output ./downloads/proposal.pdf
-gws drive mkdir "Client Docs" --parent PARENT_FOLDER_ID
-gws --dry-run drive share FILE_ID --role reader --type user --email client@example.com
-gws --dry-run drive trash FILE_ID
-gws --dry-run drive restore FILE_ID
-gws --dry-run drive copy FILE_ID --name "Copy.pdf" --parent FOLDER_ID
-gws --dry-run drive batch-delete FILE_ID_1 FILE_ID_2 FILE_ID_3
-gws --dry-run drive shortcut TARGET_FILE_ID --name "Shortcut" --parent FOLDER_ID
-gws drive revisions FILE_ID
-gws drive shared-drives --limit 20
+gwcli drive list --query "mimeType != 'application/vnd.google-apps.folder'" --limit 20
+gwcli drive get FILE_ID
+gwcli --dry-run drive upload --path ./proposal.pdf --name "Proposal.pdf" --parent FOLDER_ID
+gwcli drive download FILE_ID --output ./downloads/proposal.pdf
+gwcli drive mkdir "Client Docs" --parent PARENT_FOLDER_ID
+gwcli --dry-run drive share FILE_ID --role reader --type user --email client@example.com
+gwcli --dry-run drive trash FILE_ID
+gwcli --dry-run drive restore FILE_ID
+gwcli --dry-run drive copy FILE_ID --name "Copy.pdf" --parent FOLDER_ID
+gwcli --dry-run drive batch-delete FILE_ID_1 FILE_ID_2 FILE_ID_3
+gwcli --dry-run drive shortcut TARGET_FILE_ID --name "Shortcut" --parent FOLDER_ID
+gwcli drive revisions FILE_ID
+gwcli drive shared-drives --limit 20
 ```
 
 Allowed Drive share roles: `reader`, `commenter`, `writer`.
@@ -267,14 +279,14 @@ Allowed Drive share types: `user`, `group`, `domain`, `anyone`.
 ## Docs examples
 
 ```bash
-gws docs get DOCUMENT_ID
-gws docs export DOCUMENT_ID --mime-type pdf --output ./doc.pdf
-gws docs create --title "Meeting Notes" --content "Initial notes"
-gws --dry-run docs insert-text DOCUMENT_ID --text "Appended line" --index 1
-gws --dry-run docs replace-text DOCUMENT_ID --find "{{name}}" --replace "Ferd" --match-case
-gws --dry-run docs insert-table DOCUMENT_ID --rows 3 --columns 2 --index 1
-gws --dry-run docs insert-image DOCUMENT_ID --uri https://example.com/logo.png --index 1
-gws --dry-run docs batch-update DOCUMENT_ID --requests '[{"insertText":{"location":{"index":1},"text":"raw"}}]'
+gwcli docs get DOCUMENT_ID
+gwcli docs export DOCUMENT_ID --mime-type pdf --output ./doc.pdf
+gwcli docs create --title "Meeting Notes" --content "Initial notes"
+gwcli --dry-run docs insert-text DOCUMENT_ID --text "Appended line" --index 1
+gwcli --dry-run docs replace-text DOCUMENT_ID --find "{{name}}" --replace "Ferd" --match-case
+gwcli --dry-run docs insert-table DOCUMENT_ID --rows 3 --columns 2 --index 1
+gwcli --dry-run docs insert-image DOCUMENT_ID --uri https://example.com/logo.png --index 1
+gwcli --dry-run docs batch-update DOCUMENT_ID --requests '[{"insertText":{"location":{"index":1},"text":"raw"}}]'
 ```
 
 Export MIME aliases include `pdf`, `docx`, `txt`, and `html`.
@@ -287,15 +299,15 @@ operations not covered by the typed helpers (text styling, paragraph formatting,
 ## Sheets examples
 
 ```bash
-gws sheets get SPREADSHEET_ID
-gws sheets values SPREADSHEET_ID --range "Sheet1!A1:C10"
-gws --dry-run sheets update SPREADSHEET_ID --range "Sheet1!A1:B2" --values '[["a","b"],["c","d"]]' --value-input-option USER_ENTERED
-gws sheets append SPREADSHEET_ID --range "Sheet1!A:B" --values '[["new","row"]]'
-gws --dry-run sheets add-sheet SPREADSHEET_ID --title "Q3" --rows 200 --columns 12
-gws --dry-run sheets rename-sheet SPREADSHEET_ID --sheet-id 0 --title "Summary"
-gws --dry-run sheets delete-sheet SPREADSHEET_ID --sheet-id 123456
-gws --dry-run sheets clear SPREADSHEET_ID --range "Sheet1!A1:Z100"
-gws --dry-run sheets batch-update SPREADSHEET_ID --requests '[{"repeatCell":{"range":{"sheetId":0},"cell":{"userEnteredFormat":{"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold"}}]'
+gwcli sheets get SPREADSHEET_ID
+gwcli sheets values SPREADSHEET_ID --range "Sheet1!A1:C10"
+gwcli --dry-run sheets update SPREADSHEET_ID --range "Sheet1!A1:B2" --values '[["a","b"],["c","d"]]' --value-input-option USER_ENTERED
+gwcli sheets append SPREADSHEET_ID --range "Sheet1!A:B" --values '[["new","row"]]'
+gwcli --dry-run sheets add-sheet SPREADSHEET_ID --title "Q3" --rows 200 --columns 12
+gwcli --dry-run sheets rename-sheet SPREADSHEET_ID --sheet-id 0 --title "Summary"
+gwcli --dry-run sheets delete-sheet SPREADSHEET_ID --sheet-id 123456
+gwcli --dry-run sheets clear SPREADSHEET_ID --range "Sheet1!A1:Z100"
+gwcli --dry-run sheets batch-update SPREADSHEET_ID --requests '[{"repeatCell":{"range":{"sheetId":0},"cell":{"userEnteredFormat":{"textFormat":{"bold":true}}},"fields":"userEnteredFormat.textFormat.bold"}}]'
 ```
 
 Allowed value input options: `RAW`, `USER_ENTERED`.
@@ -309,39 +321,39 @@ Sheets API `Request` objects (formatting, data validation, conditional formattin
 malformed JSON fails with a clear `requests must be valid JSON` validation error.
 ## Tasks examples
 
-> Tasks needs the `tasks` OAuth scope. If you authenticated before Tasks support existed, re-run `gws auth login --account you@example.com --type workspace` first, otherwise calls return 403.
+> Tasks needs the `tasks` OAuth scope. If you authenticated before Tasks support existed, re-run `gwcli auth login --account you@example.com --type workspace` first, otherwise calls return 403.
 
 ```bash
-gws tasks lists list
-gws tasks lists get LIST_ID
-gws --dry-run tasks lists create --title "Groceries"
-gws --dry-run tasks lists update LIST_ID --title "Renamed"
-gws --dry-run tasks lists delete LIST_ID
+gwcli tasks lists list
+gwcli tasks lists get LIST_ID
+gwcli --dry-run tasks lists create --title "Groceries"
+gwcli --dry-run tasks lists update LIST_ID --title "Renamed"
+gwcli --dry-run tasks lists delete LIST_ID
 
-gws tasks list LIST_ID --show-completed --limit 50
-gws tasks get LIST_ID TASK_ID
-gws --dry-run tasks create LIST_ID --title "Buy milk" --notes "whole" --due 2026-06-20T00:00:00Z
-gws --dry-run tasks update LIST_ID TASK_ID --title "New title" --status needsAction
-gws --dry-run tasks complete LIST_ID TASK_ID
-gws --dry-run tasks move LIST_ID TASK_ID --parent PARENT_ID --previous SIBLING_ID
-gws --dry-run tasks delete LIST_ID TASK_ID
+gwcli tasks list LIST_ID --show-completed --limit 50
+gwcli tasks get LIST_ID TASK_ID
+gwcli --dry-run tasks create LIST_ID --title "Buy milk" --notes "whole" --due 2026-06-20T00:00:00Z
+gwcli --dry-run tasks update LIST_ID TASK_ID --title "New title" --status needsAction
+gwcli --dry-run tasks complete LIST_ID TASK_ID
+gwcli --dry-run tasks move LIST_ID TASK_ID --parent PARENT_ID --previous SIBLING_ID
+gwcli --dry-run tasks delete LIST_ID TASK_ID
 ```
 
 Allowed task status values: `needsAction`, `completed`.
 
 ## Contacts examples
 
-> Contacts needs the `contacts` OAuth scope. If you authenticated before Contacts support existed, re-run `gws auth login --account you@example.com --type workspace` first, otherwise calls return 403.
+> Contacts needs the `contacts` OAuth scope. If you authenticated before Contacts support existed, re-run `gwcli auth login --account you@example.com --type workspace` first, otherwise calls return 403.
 
 ```bash
-gws contacts list --page-size 50
-gws contacts search "Ada"
-gws contacts get people/c123
-gws --dry-run contacts create --json '{"names":[{"givenName":"Ada","familyName":"Lovelace"}],"emailAddresses":[{"value":"ada@example.com"}]}'
-gws --dry-run contacts update people/c123 --json '{"names":[{"givenName":"Grace"}]}' --fields names
-gws --dry-run contacts delete people/c123
-gws contacts groups list
-gws contacts groups get contactGroups/abc
+gwcli contacts list --page-size 50
+gwcli contacts search "Ada"
+gwcli contacts get people/c123
+gwcli --dry-run contacts create --json '{"names":[{"givenName":"Ada","familyName":"Lovelace"}],"emailAddresses":[{"value":"ada@example.com"}]}'
+gwcli --dry-run contacts update people/c123 --json '{"names":[{"givenName":"Grace"}]}' --fields names
+gwcli --dry-run contacts delete people/c123
+gwcli contacts groups list
+gwcli contacts groups get contactGroups/abc
 ```
 
 The `--json` payload is a [People API `Person` resource](https://developers.google.com/people/api/rest/v1/people#Person). `contacts update` resolves the required `etag` automatically (it reuses `etag` from the payload when present, otherwise fetches the current one before patching).
@@ -351,10 +363,10 @@ The `--json` payload is a [People API `Person` resource](https://developers.goog
 Default output is JSON and stdout is kept data-only for successful commands.
 
 ```bash
-gws mail list --format json
-gws mail list --format table
-gws mail list --format jsonl
-gws mail list --format tsv
+gwcli mail list --format json
+gwcli mail list --format table
+gwcli mail list --format jsonl
+gwcli mail list --format tsv
 ```
 
 `yaml` is reserved but not bundled yet.
@@ -378,15 +390,15 @@ Commands resolve the active account in this order:
 
 ## MCP compatibility
 
-The MCP server is still available as `gws-mcp` and preserves the current tool names.
+The MCP server is available as `mcp-google-workspace` (the `gws-mcp` binary remains as a legacy alias) and preserves the current tool names.
 
 Example MCP config:
 
 ```json
 {
   "mcpServers": {
-    "gmail-calendar": {
-      "command": "gws-mcp",
+    "google-workspace": {
+      "command": "mcp-google-workspace",
       "env": {
         "GOOGLE_CREDENTIALS_PATH": "/absolute/path/to/credentials.json",
         "TOKENS_PATH": "/absolute/path/to/tokens",
@@ -400,7 +412,7 @@ Example MCP config:
 Existing direct path usage also works:
 
 ```bash
-node /absolute/path/to/mcp-gmail-calendar/dist/index.js
+node /absolute/path/to/mcp-google-workspace/dist/index.js
 ```
 
 ## MCP tool groups
@@ -414,13 +426,13 @@ node /absolute/path/to/mcp-gmail-calendar/dist/index.js
 - Docs: `docs_get`, `docs_create`, `docs_export`, `docs_batch_update`, `docs_insert_text`, `docs_replace_text`, `docs_insert_table`, `docs_insert_image`
 - Sheets: `sheets_get`, `sheets_values_get`, `sheets_values_update`, `sheets_values_append`, `sheets_batch_update`, `sheets_add_sheet`, `sheets_delete_sheet`, `sheets_rename_sheet`, `sheets_clear`
 
-Docs has full CLI↔MCP parity: every `gws docs <command>` maps to a `docs_*` MCP tool with the same
+Docs has full CLI↔MCP parity: every `gwcli docs <command>` maps to a `docs_*` MCP tool with the same
 underlying service method. Mutating MCP tools validate arguments with zod and reject malformed input
 with `InvalidParams`; the CLI exposes the same operations behind `--dry-run`.
 
-Drive now has CLI↔MCP parity: every `gws drive` command has a matching `drive_*` MCP tool. As in the CLI, `drive_trash` and `drive_batch_delete` move files to the trash (recoverable) instead of deleting permanently.
+Drive now has CLI↔MCP parity: every `gwcli drive` command has a matching `drive_*` MCP tool. As in the CLI, `drive_trash` and `drive_batch_delete` move files to the trash (recoverable) instead of deleting permanently.
 
-The Sheets surface is at parity between the CLI (`gws sheets ...`) and MCP (`sheets_*`
+The Sheets surface is at parity between the CLI (`gwcli sheets ...`) and MCP (`sheets_*`
 tools): both cover values get/update/append, structural mutations (add/delete/rename
 sheet), range clears, and raw `batchUpdate` requests. Use `--value-input-option
 USER_ENTERED` (CLI) or `valueInputOption: "USER_ENTERED"` (MCP) to write formulas.

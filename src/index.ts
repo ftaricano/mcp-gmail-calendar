@@ -51,7 +51,7 @@ class GmailCalendarMCPServer {
     
     this.server = new Server(
       {
-        name: 'gmail-calendar-mcp',
+        name: 'mcp-google-workspace',
         version: '1.0.0',
       },
       {

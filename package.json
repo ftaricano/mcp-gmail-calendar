@@ -1,7 +1,7 @@
 {
-  "name": "@mcp/gmail-calendar",
-  "version": "1.1.0",
-  "description": "CLI-first Google Workspace tool with MCP compatibility for Gmail and Calendar workflows.",
+  "name": "@ftaricano/mcp-google-workspace",
+  "version": "2.0.0",
+  "description": "CLI and MCP server for Google Workspace: Gmail, Calendar, Drive, Docs, Sheets, Tasks and Contacts.",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -26,10 +26,18 @@
     "calendar",
     "google-workspace",
     "cli",
-    "gws"
+    "gwcli"
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ftaricano/mcp-google-workspace.git"
+  },
+  "homepage": "https://github.com/ftaricano/mcp-google-workspace#readme",
+  "bugs": {
+    "url": "https://github.com/ftaricano/mcp-google-workspace/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cli-table3": "^0.6.5",
@@ -69,13 +77,15 @@
     "typescript": "^5.7.2"
   },
   "bin": {
-    "gws": "./bin/gws.js",
-    "gws-mcp": "./bin/gws-mcp.js"
+    "gwcli": "./bin/gwcli.js",
+    "mcp-google-workspace": "./bin/mcp-google-workspace.js",
+    "gws-mcp": "./bin/mcp-google-workspace.js"
   },
   "files": [
     "dist",
     "bin",
     "README.md",
-    "SECURITY.md"
+    "SECURITY.md",
+    "CHANGELOG.md"
   ]
 }

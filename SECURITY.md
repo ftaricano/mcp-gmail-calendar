@@ -1,6 +1,6 @@
 # Security
 
-`gws` stores Google OAuth tokens locally. Treat the configured data directory as sensitive.
+`gwcli` stores Google OAuth tokens locally. Treat the configured data directory as sensitive.
 
 ## Local token storage
 

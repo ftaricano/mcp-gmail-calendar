@@ -72,7 +72,7 @@ export class Logger {
 
   constructor(module: string) {
     const logLevel = process.env.LOG_LEVEL || 'info';
-    const logFilePath = process.env.LOG_FILE_PATH || './logs/mcp-gmail-calendar.log';
+    const logFilePath = process.env.LOG_FILE_PATH || './logs/mcp-google-workspace.log';
 
     // Create logs directory if it doesn't exist
     const logDir = path.dirname(logFilePath);

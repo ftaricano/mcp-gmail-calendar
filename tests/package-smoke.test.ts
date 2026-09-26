@@ -37,11 +37,12 @@ function runNode(args: string[]): Promise<{
   });
 }
 
-test('package metadata includes gws and gws-mcp bins', async () => {
+test('package metadata includes gwcli, mcp-google-workspace and legacy gws-mcp bins', async () => {
   const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf-8'));
   assert.deepEqual(packageJson.bin, {
-    gws: './bin/gws.js',
-    'gws-mcp': './bin/gws-mcp.js',
+    gwcli: './bin/gwcli.js',
+    'mcp-google-workspace': './bin/mcp-google-workspace.js',
+    'gws-mcp': './bin/mcp-google-workspace.js',
   });
 });
 
@@ -53,17 +54,17 @@ test('program help includes doctor and workspace command groups', () => {
   assert.match(help, /\bsheets\b/);
 });
 
-test('gws-mcp help exits successfully without requiring Google credentials', async () => {
-  const result = await runNode(['bin/gws-mcp.js', '--help']);
+test('mcp-google-workspace help exits successfully without requiring Google credentials', async () => {
+  const result = await runNode(['bin/mcp-google-workspace.js', '--help']);
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Usage: gws-mcp/);
+  assert.match(result.stdout, /Usage: mcp-google-workspace/);
   assert.doesNotMatch(result.stdout + result.stderr, /GoogleAuthManager|credentials\.json/);
 });
 
-test('gws-mcp version exits successfully without requiring Google credentials', async () => {
+test('mcp-google-workspace version exits successfully without requiring Google credentials', async () => {
   const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf-8'));
-  const result = await runNode(['bin/gws-mcp.js', '--version']);
+  const result = await runNode(['bin/mcp-google-workspace.js', '--version']);
 
   assert.equal(result.code, 0);
   assert.equal(result.stdout.trim(), packageJson.version);
