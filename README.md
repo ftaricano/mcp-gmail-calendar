@@ -283,7 +283,7 @@ gwcli docs get DOCUMENT_ID
 gwcli docs export DOCUMENT_ID --mime-type pdf --output ./doc.pdf
 gwcli docs create --title "Meeting Notes" --content "Initial notes"
 gwcli --dry-run docs insert-text DOCUMENT_ID --text "Appended line" --index 1
-gwcli --dry-run docs replace-text DOCUMENT_ID --find "{{name}}" --replace "Ferd" --match-case
+gwcli --dry-run docs replace-text DOCUMENT_ID --find "{{name}}" --replace "Ada" --match-case
 gwcli --dry-run docs insert-table DOCUMENT_ID --rows 3 --columns 2 --index 1
 gwcli --dry-run docs insert-image DOCUMENT_ID --uri https://example.com/logo.png --index 1
 gwcli --dry-run docs batch-update DOCUMENT_ID --requests '[{"insertText":{"location":{"index":1},"text":"raw"}}]'
