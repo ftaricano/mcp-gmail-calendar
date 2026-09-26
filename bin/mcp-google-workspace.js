@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 
 if (args.includes('--help') || args.includes('-h') || args[0] === 'help') {
-  console.log(`Usage: gws-mcp [options]
+  console.log(`Usage: mcp-google-workspace [options]
 
-Google Workspace MCP server for Gmail and Calendar workflows
+Google Workspace MCP server (also installed as gws-mcp)
 
 Options:
   -V, --version  output the version number

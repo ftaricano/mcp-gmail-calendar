@@ -186,7 +186,7 @@ export async function runCli(
   process.exitCode = 0;
   const programOptions = createProgramOptions(options);
   const program = createProgram(programOptions);
-  await program.parseAsync(['node', 'gws', ...argv]);
+  await program.parseAsync(['node', 'gwcli', ...argv]);
   const result = {
     stdout: programOptions.stdout.toString(),
     stderr: programOptions.stderr.toString(),

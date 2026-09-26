@@ -224,7 +224,7 @@ export async function resolveAccount(
   if (state.current) return state.current;
   const accounts = await authManager.listAccounts();
   if (accounts[0]?.email) return accounts[0].email;
-  throw new AuthCliError('No Google Workspace account configured. Run `gws auth login --account you@example.com`.');
+  throw new AuthCliError('No Google Workspace account configured. Run `gwcli auth login --account you@example.com`.');
 }
 
 export async function switchCurrentAccount(

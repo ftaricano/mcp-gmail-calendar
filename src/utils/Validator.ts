@@ -19,7 +19,7 @@ const envSchema = z.object({
   MAX_CALENDAR_EVENTS: z.string().optional().default('100'),
   DEFAULT_CALENDAR_TIMEZONE: z.string().optional().default('America/New_York'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional().default('info'),
-  LOG_FILE_PATH: z.string().optional().default('./logs/mcp-gmail-calendar.log'),
+  LOG_FILE_PATH: z.string().optional().default('./logs/mcp-google-workspace.log'),
   ENABLE_HTML_SANITIZATION: z.string().optional().default('true'),
   ALLOWED_ATTACHMENT_TYPES: z.string().optional().default('pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,jpg,jpeg,png,gif,zip'),
   TEMPLATE_PATH: z.string().optional().default('./templates'),

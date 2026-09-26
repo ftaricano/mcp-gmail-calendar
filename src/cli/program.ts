@@ -102,7 +102,7 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
   if (options.installSignalHandlers !== false) installSignalHandlers(runtime);
 
   program
-    .name('gws')
+    .name('gwcli')
     .description('CLI-first Google Workspace tool with MCP compatibility')
     .version(runtime.version)
     .option('-a, --account <email>', 'Google account email')
@@ -144,7 +144,7 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     return { removed: email };
   }));
 
-  const config = program.command('config').description('Manage gws CLI config');
+  const config = program.command('config').description('Manage gwcli config');
   config.command('path').description('Show config/state paths').action(() => runAction(program, runtime, async () => ({
     configPath: runtime.configPath(),
     statePath: runtime.statePath(),
@@ -759,7 +759,7 @@ export function createProgram(options: CreateProgramOptions = {}): Command {
     return { account, result: await (await runtime.services.people(account)).getContactGroup(resourceName) };
   }));
 
-  program.command('doctor').description('Check local gws configuration').action(() => runAction(program, runtime, async () => ({
+  program.command('doctor').description('Check local gwcli configuration').action(() => runAction(program, runtime, async () => ({
     version: runtime.version,
     configPath: runtime.configPath(),
     statePath: runtime.statePath(),
